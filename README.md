@@ -37,39 +37,35 @@
 ```markdown
 这里是一段笔记内容。
 ![](file:///D:\QQ_Data\Tencent%20Files\Image\58`7R\(F{BB37HFZ7$@FL%_H.png)
+```
 
-转换后 (Obsidian 原生双链):
-
-Markdown
+**转换后 (Obsidian 原生双链):**
+```markdown
 这里是一段笔记内容。
 ![[Pasted image 20260420123045.png]]
-(同时图片已被安全地复制到了当前目录的 Attachments 文件夹中)
+```
+*(同时图片已被安全地复制到了当前目录的 `Attachments` 文件夹中)*
 
-📦 安装说明
-手动安装
-从本仓库的 Releases 页面下载最新版本的 main.js 和 manifest.json。
+## 📦 安装说明
 
-在你的 Obsidian 仓库中，进入 .obsidian/plugins/ 目录。
+### 手动安装
+1. 从本仓库的 [Releases](../../releases) 页面下载最新版本的 `main.js` 和 `manifest.json`。
+2. 在你的 Obsidian 仓库中，进入 `.obsidian/plugins/` 目录。
+3. 新建一个名为 `obsidian-absolute-image-transfer` 的文件夹。
+4. 将下载的两个文件放入该文件夹中。
+5. 重启 Obsidian，在设置 -> 第三方插件中关闭安全模式，并启用本插件。
 
-新建一个名为 obsidian-absolute-image-transfer 的文件夹。
+### 使用 BRAT 安装 (推荐测试版用户)
+1. 安装并启用 [BRAT](https://github.com/TfTHacker/obsidian42-brat) 插件。
+2. 在 BRAT 设置中点击 `Add Beta plugin`。
+3. 输入本仓库的地址：`你的GitHub用户名/obsidian-absolute-image-transfer`。
+4. 在 Obsidian 插件列表中启用它。
 
-将下载的两个文件放入该文件夹中。
+## ⚠️ 注意事项
 
-重启 Obsidian，在设置 -> 第三方插件中关闭安全模式，并启用本插件。
+- 转换过程会真实读取你电脑硬盘上的图片文件。如果原始图片在转换前已经被你从硬盘上删除，插件将跳过该链接并在控制台输出警告。
+- 建议在执行全局批量处理 (`Transfer ALL local images in vault`) 之前，先使用 Git 或 Obsidian 的同步功能备份您的仓库，以防万一。
 
-使用 BRAT 安装 (推荐测试版用户)
-安装并启用 BRAT 插件。
+## 📄 许可证
 
-在 BRAT 设置中点击 Add Beta plugin。
-
-输入本仓库的地址：KFLhoTAT/obsidian-absolute-image-transfer
-
-在 Obsidian 插件列表中启用它。
-
-⚠️ 注意事项
-转换过程会真实读取你电脑硬盘上的图片文件。如果原始图片在转换前已经被你从硬盘上删除，插件将跳过该链接并在控制台输出警告。
-
-建议在执行全局批量处理 (Transfer ALL local images in vault) 之前，先使用 Git 或 Obsidian 的同步功能备份您的仓库，以防万一。
-
-📄 许可证
-本项目基于 MIT License 开源。欢迎提交 Issue 或 Pull Request！
+本项目基于 [MIT License](LICENSE) 开源。欢迎提交 Issue 或 Pull Request！
