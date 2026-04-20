@@ -1,10 +1,10 @@
-import { App, Editor, MarkdownView, MarkdownFileInfo, Notice, Plugin, TFile, TFolder, TAbstractFile, Menu, normalizePath, moment } from 'obsidian';
-import { DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab } from "./settings";
+import { Editor, MarkdownView, MarkdownFileInfo, Notice, Plugin, TFile, TFolder, TAbstractFile, Menu, normalizePath, moment } from 'obsidian';
+import { DEFAULT_SETTINGS, ImageTransferSettings, ImageTransferSettingTab } from "./settings";
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 export default class LocalImageTransferPlugin extends Plugin {
-    settings!: MyPluginSettings;
+    settings!: ImageTransferSettings;
 
     async onload() {
         await this.loadSettings();
@@ -17,12 +17,6 @@ export default class LocalImageTransferPlugin extends Plugin {
         this.addCommand({
             id: 'transfer-images-current-note',
             name: 'Transfer local images in current note',
-            hotkeys: [
-                {
-                    modifiers: ["Alt"],
-                    key: "P"
-                }
-            ],
             editorCallback: async (editor: Editor, ctx: MarkdownView | MarkdownFileInfo) => {
                 if (!ctx.file) {
                     new Notice('⚠️ 无法获取当前文件，请确保您打开了一篇笔记！');
@@ -41,7 +35,7 @@ export default class LocalImageTransferPlugin extends Plugin {
         // 命令二：处理整个仓库内的所有笔记 (全局处理)
         this.addCommand({
             id: 'transfer-images-entire-vault',
-            name: 'Transfer ALL local images in vault (Batch)',
+            name: 'Transfer all local images in vault',
             callback: async () => {
                 new Notice('🚀 开始全局批量处理，请稍候...');
                 const files = this.app.vault.getMarkdownFiles();
@@ -110,7 +104,7 @@ export default class LocalImageTransferPlugin extends Plugin {
         );
 
         // 添加设置面板
-        this.addSettingTab(new SampleSettingTab(this.app, this));
+        this.addSettingTab(new ImageTransferSettingTab(this.app, this));
     }
 
     onunload() {
@@ -118,7 +112,7 @@ export default class LocalImageTransferPlugin extends Plugin {
     }
 
     async loadSettings() {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<ImageTransferSettings>);
     }
 
     async saveSettings() {
