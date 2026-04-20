@@ -2,7 +2,11 @@
 
 这是一个专为 Obsidian 打造的本地图片本地化插件。
 
-当你从其他软件（如 QQ、微信、Typora 等）导出或复制 Markdown 笔记到 Obsidian 时，图片链接往往是外部的绝对物理路径（例如 `![](file:///D:\Images\test.png)`）。这会导致笔记在跨设备同步时图片全部失效（死链）。
+当你从其他软件（如 QQ、微信、Typora 等）导出或复制 Markdown 笔记到 Obsidian 时，会有两个问题
+1. 复制粘贴是本地文件链接的格式，如!(file:///D:\local_data\software_data\tool_data\communicate_data\QQdata\Tencent%20Files\542386598\Image\Group2\Q)\TN\Q)TNF]S%MRO@AI1(F[I]OYC.gif)，聊天记录一请客全没了。
+2. 某些版本qq对文件逆天的起名，如Q)\TN\Q)TNF]S%MRO@AI1(F[I]OYC.gif，会导致Obsidian的渲染直接死掉，因为根本分不清哪个斜杠是路径，哪个斜杠是文件名，obsidian会直接无法显示。
+我试过local image plus,但是因为文件名太阴间这个插件也死掉了。
+用我这个插件直接右键转换，全部链接都变成附件，完美。
 
 本插件完美解决了这个痛点：**一键将笔记中的外部物理图片提取、复制到你的 Obsidian 仓库中，并自动转换为原生的双链格式。**
 
