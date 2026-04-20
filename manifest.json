@@ -1,11 +1,9 @@
 {
-	"id": "obsidian-absolute-image-transfer",
-	"name": "Absolute Image Transfer",
-	"version": "1.0.0",
-	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+  "id": "absolute-image-transfer", 
+  "name": "Absolute Image Transfer",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "一键将 Markdown 笔记中的外部绝对路径图片物理提取至仓库附件目录，并转换为原生双链。",
+  "author": "KahoTAT",
+  "authorUrl": "https://github.com/KFLhoTAT"
 }

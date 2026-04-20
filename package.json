@@ -1,6 +1,6 @@
 {
 
-	"name": "obsidian-absolute-image-transfer",
+	"name": "absolute-image-transfer",
 	"version": "1.0.0",
 	"description": "一键将 Markdown 笔记中的外部绝对路径图片物理提取至仓库附件目录，并转换为原生双链。",
 	"main": "main.js",

@@ -58,7 +58,7 @@
 ### 使用 BRAT 安装 (推荐测试版用户)
 1. 安装并启用 [BRAT](https://github.com/TfTHacker/obsidian42-brat) 插件。
 2. 在 BRAT 设置中点击 `Add Beta plugin`。
-3. 输入本仓库的地址：`你的GitHub用户名/obsidian-absolute-image-transfer`。
+3. 输入本仓库的地址：`KFLhoTAT/obsidian-absolute-image-transfer`。
 4. 在 Obsidian 插件列表中启用它。
 
 ## ⚠️ 注意事项
