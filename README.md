@@ -1,90 +1,39 @@
-# Obsidian Sample Plugin
+# Obsidian Absolute Image Transfer (绝对路径图片转换器)
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+这是一个专为 Obsidian 打造的本地图片本地化插件。
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+当你从其他软件（如 QQ、微信、Typora 等）导出或复制 Markdown 笔记到 Obsidian 时，图片链接往往是外部的绝对物理路径（例如 `![](file:///D:\Images\test.png)`）。这会导致笔记在跨设备同步时图片全部失效（死链）。
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+本插件完美解决了这个痛点：**一键将笔记中的外部物理图片提取、复制到你的 Obsidian 仓库中，并自动转换为原生的双链格式。**
 
-## First time developing plugins?
+## ✨ 核心特性
 
-Quick starting guide for new plugin devs:
+- **一键提取与转换**：自动解析形如 `file:///` 或 `C:\` 的本地物理图片路径，将图片物理搬运至仓库内，并将链接转为 `![[Pasted image 2026xxxx.png]]`。
+- **智能附件目录**：自动在当前笔记的同级目录下寻找或创建 `Attachments` 文件夹来存放图片，保持仓库整洁。
+- **强大的极端命名兼容 (Hardcore Edge Cases)**：
+  - 完美兼容路径中的空格及中文字符。
+  - **独家防弹设计**：完美解析包含乱码、 `%` 号混淆、甚至带有半角括号 `()` `{}` 的变态文件名（如 QQ 生成的复杂图片名），自动剥离 Obsidian 强加的转义符 `\`。
+- **无损防冲突机制**：采用时间戳（YYYYMMDDHHmmss）对图片进行标准化重命名，若遇到同秒并发，自动顺延探测，绝不覆盖已有文件。
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+## 🚀 快速使用
 
-## Releasing new releases
+插件提供了多种灵活的使用方式，满足不同场景的需求：
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+### 1. 快捷键 & 命令面板
+- 打开一篇包含绝对路径图片的笔记。
+- 按下默认快捷键 **`Alt + P`**（支持在设置中自定义）。
+- 或使用 `Ctrl/Cmd + P` 呼出命令面板，搜索 `Transfer local images in current note` 并执行。
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### 2. 右键菜单 (Context Menu) 最强推荐！
+- **处理单篇笔记**：在左侧文件树中，右键点击任意 `.md` 文件，选择 `转换该文件内的本地图片`。
+- **批量处理文件夹**：右键点击任意文件夹，选择 `转换该文件夹内所有本地图片`，插件将自动遍历该文件夹及所有子文件夹，一键完成海量笔记的图片迁移！
 
-## Adding your plugin to the community plugin list
+### 3. 全局暴力洗地
+- 在命令面板中执行 `Transfer ALL local images in vault (Batch)`，一键处理整个仓库中的所有笔记。
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+## 📸 转换效果演示
 
-## How to use
-
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
-
-## Manually installing the plugin
-
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
-
-## Improve code quality with eslint
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
-```
-
-If you have multiple URLs, you can also do:
-
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
-```
-
-## API Documentation
-
-See https://docs.obsidian.md
+**转换前 (外部脆弱链接):**
+```markdown
+这里是一段笔记内容。
+![](file:///D:\QQ_Data\Tencent%20Files\Image\58`7R\(F{BB37HFZ7$@FL%_H.png)
