@@ -15,7 +15,7 @@ export default class ImageTransferPlugin extends Plugin {
 
         this.addCommand({
             id: 'transfer-images-current-note',
-            name: 'Transfer local images in current note',
+            name: '转换当前笔记中的外部图片',
             editorCallback: async (editor: Editor, ctx: MarkdownView | MarkdownFileInfo) => {
                 try {
                     if (!ctx.file) {
@@ -25,9 +25,9 @@ export default class ImageTransferPlugin extends Plugin {
                     new Notice('正在处理当前笔记的图片...');
                     const updated = await this.processNote(ctx.file);
                     if (updated) {
-                        new Notice('✅ 当前笔记图片转换完成！');
+                        new Notice('✅ 当前笔记外部图片转换完成！');
                     } else {
-                        new Notice('没有发现需要转换本地图片。');
+                        new Notice('没有发现需要转换的外部本地图片。');
                     }
                 } catch (e) {
                     console.error(e);
@@ -38,7 +38,7 @@ export default class ImageTransferPlugin extends Plugin {
 
         this.addCommand({
             id: 'transfer-images-entire-vault',
-            name: 'Transfer all local images in vault',
+            name: '转换整个仓库中的外部图片',
             callback: async () => {
                 try {
                     new Notice('🚀 开始全局批量处理，请稍候...');
@@ -65,28 +65,46 @@ export default class ImageTransferPlugin extends Plugin {
         this.registerEvent(
             this.app.workspace.on('file-menu', (menu: Menu, file: TAbstractFile) => {
                 if (file instanceof TFile && file.extension === 'md') {
+                    // 功能 1：转换外部绝对路径图片
                     menu.addItem((item) => {
                         item
-                            .setTitle('Transfer local images in this file')
-                            .setIcon('image')
+                            .setTitle('转换本文件内的外部图片')
+                            .setIcon('image-plus')
                             .onClick(async () => {
                                 new Notice(`正在处理: ${file.name}`);
                                 const updated = await this.processNote(file);
                                 if (updated) {
-                                    new Notice(`✅ ${file.name} 转换完成！`);
+                                    new Notice(`✅ ${file.name} 外部图片转换完成！`);
                                 } else {
-                                    new Notice(`ℹ️ 该笔记中没有需要转换的图片。`);
+                                    new Notice(`ℹ️ 该笔记中没有需要转换的外部图片。`);
+                                }
+                            });
+                    });
+
+                    // 功能 2：重命名库内已有的乱码双链图片
+                    menu.addItem((item) => {
+                        item
+                            .setTitle('重命名本文件内的乱码图片')
+                            .setIcon('image-minus')
+                            .onClick(async () => {
+                                new Notice(`正在扫描乱码图片: ${file.name}`);
+                                const count = await this.processGarbledImages(file);
+                                if (count > 0) {
+                                    new Notice(`✅ 成功重命名 ${count} 张乱码图片！`);
+                                } else {
+                                    new Notice(`ℹ️ 未发现乱码图片。`);
                                 }
                             });
                     });
                 }
                 else if (file instanceof TFolder) {
+                    // 功能 1：批量转换文件夹下的外部图片
                     menu.addItem((item) => {
                         item
-                            .setTitle('Transfer local images in this folder')
+                            .setTitle('转换该文件夹下的外部图片')
                             .setIcon('images')
                             .onClick(async () => {
-                                new Notice(`🚀 开始处理文件夹: ${file.name}`);
+                                new Notice(`🚀 开始处理文件夹外部图片: ${file.name}`);
                                 const files = this.app.vault.getMarkdownFiles();
                                 let processedCount = 0;
                                 const folderPrefix = file.path === '/' ? '' : file.path + '/';
@@ -99,7 +117,28 @@ export default class ImageTransferPlugin extends Plugin {
                                         }
                                     }
                                 }
-                                new Notice(`🎉 文件夹 ${file.name} 处理完毕！共更新了 ${processedCount} 篇笔记。`);
+                                // 修复 unused-vars 警告，将 processedCount 加入提示中
+                                new Notice(`🎉 文件夹 ${file.name} 外部图片处理完毕！共更新了 ${processedCount} 篇笔记。`);
+                            });
+                    });
+
+                    // 功能 2：批量重命名文件夹下的乱码双链图片
+                    menu.addItem((item) => {
+                        item
+                            .setTitle('重命名该文件夹下的乱码图片')
+                            .setIcon('images')
+                            .onClick(async () => {
+                                new Notice(`🚀 开始扫描文件夹乱码图片: ${file.name}`);
+                                const files = this.app.vault.getMarkdownFiles();
+                                let totalRenamed = 0;
+                                const folderPrefix = file.path === '/' ? '' : file.path + '/';
+
+                                for (const mdFile of files) {
+                                    if (mdFile.path.startsWith(folderPrefix)) {
+                                        totalRenamed += await this.processGarbledImages(mdFile);
+                                    }
+                                }
+                                new Notice(`🎉 扫描完毕！共重命名了 ${totalRenamed} 张乱码图片。`);
                             });
                     });
                 }
@@ -123,10 +162,8 @@ export default class ImageTransferPlugin extends Plugin {
 
     /**
      * 弹性路径解析：针对包含变态符号和转义符的路径。
-     * 它不再预先拆分片段，而是尝试从根部开始，匹配硬盘上真实存在的路径前缀。
      */
     private async flexibleProbing(base: string, remaining: string): Promise<string | null> {
-        // 清理当前剩余路径的前导斜杠
         const target = remaining.replace(/^[\\/]+/, '');
         if (!target) {
             try {
@@ -137,22 +174,15 @@ export default class ImageTransferPlugin extends Plugin {
 
         try {
             const entries = await fs.readdir(base);
-            // 优先尝试长匹配，防止短路径片段误匹配
             entries.sort((a, b) => b.length - a.length);
 
             for (const entry of entries) {
-                // 核心匹配逻辑：
-                // 1. 忽略目标字符串中的反斜杠（将其视为转义符）
-                // 2. 检查硬盘实体名是否为目标字符串的前缀
                 let consumedCount = 0;
                 let normalizedMatch = "";
                 
-                // 模拟消耗 target 字符串的字符，直到其字面内容（不含转义符）等于 entry 名
                 for (let i = 0; i < target.length; i++) {
                     const char = target[i];
                     const nextChar = target[i + 1];
-                    // 如果遇到反斜杠且不是路径分隔符，暂时跳过它进行内容比对
-                    // 修复 TS2345: 显式检查 nextChar 是否存在以满足类型检查
                     if (char === '\\' && nextChar !== undefined && !/[\\/]/.test(nextChar)) {
                         continue; 
                     }
@@ -162,13 +192,11 @@ export default class ImageTransferPlugin extends Plugin {
                         consumedCount = i + 1;
                         break;
                     }
-                    // 如果长度已经超过，说明匹配失败
                     if (normalizedMatch.length > entry.length) break;
                 }
 
                 if (consumedCount > 0) {
                     const nextBase = path.join(base, entry);
-                    // 递归探测，注意要消费掉 target 中对应的部分
                     const found = await this.flexibleProbing(nextBase, target.substring(consumedCount));
                     if (found) return found;
                 }
@@ -178,14 +206,9 @@ export default class ImageTransferPlugin extends Plugin {
         return null;
     }
 
-    /**
-     * 核心路径解析：使用正则表达式进行安全解码，防止 URI malformed 崩溃
-     */
     private async resolvePhysicalPath(rawPath: string): Promise<string | null> {
-        // 1. 去除尖括号和 file:///
         let clean = rawPath.replace(/^<?file:\/\/\//i, '').replace(/>?$/, '');
 
-        // 2. 安全解码逻辑：只解码合法的 %XX 序列，防止原生 decodeURI 崩溃
         clean = clean.replace(/(%[0-9A-Fa-f]{2})+/g, (match) => {
             try {
                 return decodeURIComponent(match);
@@ -194,7 +217,6 @@ export default class ImageTransferPlugin extends Plugin {
             }
         });
 
-        // 3. 提取根路径
         let driveRoot = "";
         let pathBody = clean;
 
@@ -208,15 +230,16 @@ export default class ImageTransferPlugin extends Plugin {
 
         if (!driveRoot) return null;
 
-        // 4. 执行递归弹性匹配探测（比之前的分段拆分更鲁棒）
         return await this.flexibleProbing(driveRoot, pathBody);
     }
 
+    /**
+     * 核心功能一：处理外部绝对路径图片并引入 Vault
+     */
     async processNote(file: TFile): Promise<boolean> {
         let content = await this.app.vault.read(file);
         const originalContent = content;
 
-        // 正则增强：捕获包含复杂符号的绝对路径链接
         const regex = /!\[(.*?)\]\((<?(?:file:\/\/\/|[a-zA-Z]:[\\/]).*?\.(?:png|jpg|jpeg|gif|bmp|webp|heic)>?)\)/gi;
         const matches = Array.from(content.matchAll(regex));
 
@@ -229,11 +252,10 @@ export default class ImageTransferPlugin extends Plugin {
             const fullMatch = match[0];
             const rawLink = match[2] || ""; 
 
-            // 调用弹性探测逻辑
             const finalPhysicalPath = await this.resolvePhysicalPath(rawLink);
 
             if (!finalPhysicalPath) {
-                console.warn(`⚠️ 弹性探测未果 (已尝试逐字符匹配方案): ${rawLink}`);
+                console.warn(`⚠️ 弹性探测未果: ${rawLink}`);
                 continue;
             }
 
@@ -277,5 +299,85 @@ export default class ImageTransferPlugin extends Plugin {
         }
         
         return false;
+    }
+
+    /**
+     * 核心功能二：扫描并重命名已被引入库内的乱码双链图片（如 QQ 导入图片）
+     * 返回成功重命名的数量
+     */
+    async processGarbledImages(file: TFile): Promise<number> {
+        const content = await this.app.vault.read(file);
+        
+        // 匹配原生双链语法，提取出文件名部分，忽略别名（例如 ![[乱码.gif|100]] 提取出 乱码.gif）
+        const regex = /!\[\[(.*?)(?:\|.*?)?\]\]/gi;
+        const matches = Array.from(content.matchAll(regex));
+
+        if (matches.length === 0) return 0;
+
+        let renamedCount = 0;
+        const processedFilePaths = new Set<string>(); // 防重复处理同一张图
+
+        const parentPath = file.parent ? file.parent.path : "/";
+        const currentAttachFolder = normalizePath((parentPath === "/" || parentPath === "") ? "Attachments" : `${parentPath}/Attachments`);
+
+        for (const match of matches) {
+            // 增加非空判断，解决 TS2532 错误
+            if (!match[1]) continue;
+            
+            const rawLink = match[1].trim();
+
+            // 过滤非图片后缀
+            if (!/\.(png|jpg|jpeg|gif|bmp|webp|heic)$/i.test(rawLink)) {
+                continue;
+            }
+
+            // 乱码判定逻辑：包含反斜杠、百分号、各种括号或反引号等非常规文件字符
+            // 修复 no-useless-escape：去除字符集中不必要的反斜杠
+            const isGarbled = /[\\%{}()[\]~`^]/g.test(rawLink);
+            if (!isGarbled) {
+                continue;
+            }
+
+            // 通过缓存查找该图片在 Obsidian 库中的真实 TFile 对象
+            const linkedFile = this.app.metadataCache.getFirstLinkpathDest(rawLink, file.path);
+            if (!linkedFile || !(linkedFile instanceof TFile)) {
+                continue; // 库里找不到这个文件（可能已经被删除了或本身是个死链）
+            }
+
+            if (processedFilePaths.has(linkedFile.path)) {
+                continue; // 这张图已经被重命名过了，跳过
+            }
+            processedFilePaths.add(linkedFile.path);
+
+            try {
+                if (!this.app.vault.getAbstractFileByPath(currentAttachFolder)) {
+                    await this.app.vault.createFolder(currentAttachFolder);
+                }
+
+                const ext = `.${linkedFile.extension}`;
+                const currentTime = window.moment();
+                let newFileName = "";
+                let targetVaultPath = "";
+
+                // 生成防冲突的干净文件名
+                while (true) {
+                    const timeStr = currentTime.format('YYYYMMDDHHmmss');
+                    newFileName = `Pasted image ${timeStr}${ext}`;
+                    targetVaultPath = normalizePath(`${currentAttachFolder}/${newFileName}`);
+                    if (!this.app.vault.getAbstractFileByPath(targetVaultPath)) break;
+                    currentTime.add(1, 'seconds');
+                }
+
+                // 重点：使用 Obsidian 自带的 renameFile 方法！
+                // 这不仅会重命名硬盘上的物理文件，Obsidian 还会在后台自动遍历库，把所有关联的 ![[乱码.gif]] 瞬间替换成 ![[Pasted image ... .gif]]
+                await this.app.fileManager.renameFile(linkedFile, targetVaultPath);
+                renamedCount++;
+
+            } catch (err) {
+                console.error(`❌ 重命名乱码图片失败: ${linkedFile.path}`, err);
+            }
+        }
+
+        return renamedCount;
     }
 }
