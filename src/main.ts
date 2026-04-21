@@ -117,7 +117,6 @@ export default class ImageTransferPlugin extends Plugin {
                                         }
                                     }
                                 }
-                                // 修复 unused-vars 警告，将 processedCount 加入提示中
                                 new Notice(`🎉 文件夹 ${file.name} 外部图片处理完毕！共更新了 ${processedCount} 篇笔记。`);
                             });
                     });
@@ -147,8 +146,7 @@ export default class ImageTransferPlugin extends Plugin {
 
         this.addSettingTab(new ImageTransferSettingTab(this.app, this));
 
-        // 提示插件重载成功，方便开发调试
-        new Notice("Image transfer reloaded!");
+        new Notice("Image transfer v1.0.2 reloaded!");
     }
 
     async loadSettings() {
@@ -158,6 +156,81 @@ export default class ImageTransferPlugin extends Plugin {
 
     async saveSettings() {
         await this.saveData(this.settings);
+    }
+
+    /**
+     * 辅助功能：递归创建多级文件夹
+     */
+    private async createFolderRecursive(folderPath: string) {
+        if (folderPath === "/" || folderPath === "") return;
+        const parts = folderPath.split('/');
+        let currentPath = '';
+        
+        for (const part of parts) {
+            if (!part) continue;
+            currentPath = currentPath === '' ? part : `${currentPath}/${part}`;
+            if (!this.app.vault.getAbstractFileByPath(currentPath)) {
+                try {
+                    await this.app.vault.createFolder(currentPath);
+                } catch (e) {
+                    console.warn(`[ImageTransfer] 创建文件夹失败或已存在: ${currentPath}`, e);
+                }
+            }
+        }
+    }
+
+    /**
+     * 核心功能：读取插件配置，推断附件应存放的目标文件夹
+     */
+    private async getTargetAttachmentFolder(file: TFile): Promise<string> {
+        const location = this.settings.attachmentLocation;
+        // 如果用户没填名称，提供一个安全的降级默认值，避免报错
+        const customName = this.settings.customAttachmentFolder || "Attachments"; 
+        const parentPath = file.parent ? file.parent.path : "/";
+        let targetFolder = "/";
+
+        if (location === "system") {
+            // 跟随系统设置逻辑，读取官方未公开的 API
+            // 采用直接禁用当前行检查的方式，暴力解决 ESLint 误报
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+            const rawAttachmentPath = (this.app.vault as any).getConfig("attachmentFolderPath");
+            let attachmentPath = "/";
+            
+            // 安全校验类型
+            if (typeof rawAttachmentPath === "string" && rawAttachmentPath.trim() !== "") {
+                attachmentPath = rawAttachmentPath;
+            }
+
+            if (attachmentPath === "/") {
+                targetFolder = "/";
+            } else if (attachmentPath.startsWith("./")) {
+                const subFolder = attachmentPath.substring(2);
+                if (subFolder) {
+                    targetFolder = parentPath === "/" ? subFolder : `${parentPath}/${subFolder}`;
+                } else {
+                    targetFolder = parentPath;
+                }
+            } else {
+                targetFolder = attachmentPath;
+            }
+        } else if (location === "root") {
+            targetFolder = "/";
+        } else if (location === "current") {
+            targetFolder = parentPath;
+        } else if (location === "subfolder") {
+            targetFolder = parentPath === "/" ? customName : `${parentPath}/${customName}`;
+        } else if (location === "custom") {
+            targetFolder = customName;
+        }
+
+        targetFolder = normalizePath(targetFolder);
+        
+        // 确保目标文件夹存在，不存在则递归创建
+        if (targetFolder !== "/" && !this.app.vault.getAbstractFileByPath(targetFolder)) {
+            await this.createFolderRecursive(targetFolder);
+        }
+
+        return targetFolder;
     }
 
     /**
@@ -245,8 +318,8 @@ export default class ImageTransferPlugin extends Plugin {
 
         if (matches.length === 0) return false;
 
-        const parentPath = file.parent ? file.parent.path : "/";
-        const currentAttachFolder = normalizePath((parentPath === "/" || parentPath === "") ? "Attachments" : `${parentPath}/Attachments`);
+        // 获取目标附件文件夹
+        const currentAttachFolder = await this.getTargetAttachmentFolder(file);
 
         for (const match of matches) {
             const fullMatch = match[0];
@@ -260,10 +333,6 @@ export default class ImageTransferPlugin extends Plugin {
             }
 
             try {
-                if (!this.app.vault.getAbstractFileByPath(currentAttachFolder)) {
-                    await this.app.vault.createFolder(currentAttachFolder);
-                }
-
                 const ext = path.extname(finalPhysicalPath);
                 const currentTime = window.moment();
                 let newFileName = "";
@@ -272,7 +341,7 @@ export default class ImageTransferPlugin extends Plugin {
                 while (true) {
                     const timeStr = currentTime.format('YYYYMMDDHHmmss');
                     newFileName = `Pasted image ${timeStr}${ext}`;
-                    targetVaultPath = normalizePath(`${currentAttachFolder}/${newFileName}`);
+                    targetVaultPath = normalizePath(currentAttachFolder === "/" ? `/${newFileName}` : `${currentAttachFolder}/${newFileName}`);
                     if (!this.app.vault.getAbstractFileByPath(targetVaultPath)) break;
                     currentTime.add(1, 'seconds');
                 }
@@ -303,73 +372,59 @@ export default class ImageTransferPlugin extends Plugin {
 
     /**
      * 核心功能二：扫描并重命名已被引入库内的乱码双链图片（如 QQ 导入图片）
-     * 返回成功重命名的数量
      */
     async processGarbledImages(file: TFile): Promise<number> {
         const content = await this.app.vault.read(file);
         
-        // 匹配原生双链语法，提取出文件名部分，忽略别名（例如 ![[乱码.gif|100]] 提取出 乱码.gif）
         const regex = /!\[\[(.*?)(?:\|.*?)?\]\]/gi;
         const matches = Array.from(content.matchAll(regex));
 
         if (matches.length === 0) return 0;
 
         let renamedCount = 0;
-        const processedFilePaths = new Set<string>(); // 防重复处理同一张图
+        const processedFilePaths = new Set<string>();
 
-        const parentPath = file.parent ? file.parent.path : "/";
-        const currentAttachFolder = normalizePath((parentPath === "/" || parentPath === "") ? "Attachments" : `${parentPath}/Attachments`);
+        // 获取目标附件文件夹
+        const currentAttachFolder = await this.getTargetAttachmentFolder(file);
 
         for (const match of matches) {
-            // 增加非空判断，解决 TS2532 错误
             if (!match[1]) continue;
             
             const rawLink = match[1].trim();
 
-            // 过滤非图片后缀
             if (!/\.(png|jpg|jpeg|gif|bmp|webp|heic)$/i.test(rawLink)) {
                 continue;
             }
 
-            // 乱码判定逻辑：包含反斜杠、百分号、各种括号或反引号等非常规文件字符
-            // 修复 no-useless-escape：去除字符集中不必要的反斜杠
             const isGarbled = /[\\%{}()[\]~`^]/g.test(rawLink);
             if (!isGarbled) {
                 continue;
             }
 
-            // 通过缓存查找该图片在 Obsidian 库中的真实 TFile 对象
             const linkedFile = this.app.metadataCache.getFirstLinkpathDest(rawLink, file.path);
             if (!linkedFile || !(linkedFile instanceof TFile)) {
-                continue; // 库里找不到这个文件（可能已经被删除了或本身是个死链）
+                continue; 
             }
 
             if (processedFilePaths.has(linkedFile.path)) {
-                continue; // 这张图已经被重命名过了，跳过
+                continue; 
             }
             processedFilePaths.add(linkedFile.path);
 
             try {
-                if (!this.app.vault.getAbstractFileByPath(currentAttachFolder)) {
-                    await this.app.vault.createFolder(currentAttachFolder);
-                }
-
                 const ext = `.${linkedFile.extension}`;
                 const currentTime = window.moment();
                 let newFileName = "";
                 let targetVaultPath = "";
 
-                // 生成防冲突的干净文件名
                 while (true) {
                     const timeStr = currentTime.format('YYYYMMDDHHmmss');
                     newFileName = `Pasted image ${timeStr}${ext}`;
-                    targetVaultPath = normalizePath(`${currentAttachFolder}/${newFileName}`);
+                    targetVaultPath = normalizePath(currentAttachFolder === "/" ? `/${newFileName}` : `${currentAttachFolder}/${newFileName}`);
                     if (!this.app.vault.getAbstractFileByPath(targetVaultPath)) break;
                     currentTime.add(1, 'seconds');
                 }
 
-                // 重点：使用 Obsidian 自带的 renameFile 方法！
-                // 这不仅会重命名硬盘上的物理文件，Obsidian 还会在后台自动遍历库，把所有关联的 ![[乱码.gif]] 瞬间替换成 ![[Pasted image ... .gif]]
                 await this.app.fileManager.renameFile(linkedFile, targetVaultPath);
                 renamedCount++;
 
