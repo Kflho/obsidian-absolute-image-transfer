@@ -146,7 +146,7 @@ export default class ImageTransferPlugin extends Plugin {
 
         this.addSettingTab(new ImageTransferSettingTab(this.app, this));
 
-        new Notice("Image transfer v1.0.2 reloaded!");
+        new Notice("Image transfer v1.0.3 reloaded!");
     }
 
     async loadSettings() {
@@ -184,19 +184,15 @@ export default class ImageTransferPlugin extends Plugin {
      */
     private async getTargetAttachmentFolder(file: TFile): Promise<string> {
         const location = this.settings.attachmentLocation;
-        // 如果用户没填名称，提供一个安全的降级默认值，避免报错
         const customName = this.settings.customAttachmentFolder || "Attachments"; 
         const parentPath = file.parent ? file.parent.path : "/";
         let targetFolder = "/";
 
         if (location === "system") {
-            // 跟随系统设置逻辑，读取官方未公开的 API
-            // 采用直接禁用当前行检查的方式，暴力解决 ESLint 误报
             // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
             const rawAttachmentPath = (this.app.vault as any).getConfig("attachmentFolderPath");
             let attachmentPath = "/";
             
-            // 安全校验类型
             if (typeof rawAttachmentPath === "string" && rawAttachmentPath.trim() !== "") {
                 attachmentPath = rawAttachmentPath;
             }
@@ -225,7 +221,6 @@ export default class ImageTransferPlugin extends Plugin {
 
         targetFolder = normalizePath(targetFolder);
         
-        // 确保目标文件夹存在，不存在则递归创建
         if (targetFolder !== "/" && !this.app.vault.getAbstractFileByPath(targetFolder)) {
             await this.createFolderRecursive(targetFolder);
         }
@@ -234,7 +229,7 @@ export default class ImageTransferPlugin extends Plugin {
     }
 
     /**
-     * 弹性路径解析：针对包含变态符号和转义符的路径。
+     * 弹性路径解析：双轨匹配 (原始 vs 解码)
      */
     private async flexibleProbing(base: string, remaining: string): Promise<string | null> {
         const target = remaining.replace(/^[\\/]+/, '');
@@ -247,6 +242,7 @@ export default class ImageTransferPlugin extends Plugin {
 
         try {
             const entries = await fs.readdir(base);
+            // 优先匹配更长的目录名，防止前缀干扰
             entries.sort((a, b) => b.length - a.length);
 
             for (const entry of entries) {
@@ -256,16 +252,28 @@ export default class ImageTransferPlugin extends Plugin {
                 for (let i = 0; i < target.length; i++) {
                     const char = target[i];
                     const nextChar = target[i + 1];
-                    if (char === '\\' && nextChar !== undefined && !/[\\/]/.test(nextChar)) {
+
+                    // 启发式判断：仅当 \ 后跟敏感字符（如 [ ] ( ) 空格）时才视为转义，否则视为 Windows 路径分隔符
+                    // 修复 no-useless-escape：在字符集 [] 内部无需转义 ( ) [
+                    const isMarkdownEscape = /[[\]()\s]/.test(nextChar || "");
+                    if (char === '\\' && nextChar !== undefined && isMarkdownEscape) {
                         continue; 
                     }
                     
                     normalizedMatch += char;
-                    if (normalizedMatch.toLowerCase() === entry.toLowerCase()) {
+
+                    // 双轨校验：尝试原始字符匹配和 URL 解码后匹配
+                    const decodedMatch = (() => {
+                        try { return decodeURIComponent(normalizedMatch); } 
+                        catch { return normalizedMatch; }
+                    })();
+
+                    if (normalizedMatch.toLowerCase() === entry.toLowerCase() || 
+                        decodedMatch.toLowerCase() === entry.toLowerCase()) {
                         consumedCount = i + 1;
                         break;
                     }
-                    if (normalizedMatch.length > entry.length) break;
+                    if (normalizedMatch.length > entry.length + 10) break; // 提前退出长匹配
                 }
 
                 if (consumedCount > 0) {
@@ -279,16 +287,12 @@ export default class ImageTransferPlugin extends Plugin {
         return null;
     }
 
+    /**
+     * 更加灵活的协议剥离逻辑
+     */
     private async resolvePhysicalPath(rawPath: string): Promise<string | null> {
-        let clean = rawPath.replace(/^<?file:\/\/\//i, '').replace(/>?$/, '');
-
-        clean = clean.replace(/(%[0-9A-Fa-f]{2})+/g, (match) => {
-            try {
-                return decodeURIComponent(match);
-            } catch {
-                return match;
-            }
-        });
+        // 不再进行全局 decodeURIComponent，防止 %01 等字面量丢失
+        let clean = rawPath.replace(/^<?file:\/+/i, '').replace(/>?$/, '');
 
         let driveRoot = "";
         let pathBody = clean;
@@ -313,16 +317,17 @@ export default class ImageTransferPlugin extends Plugin {
         let content = await this.app.vault.read(file);
         const originalContent = content;
 
-        const regex = /!\[(.*?)\]\((<?(?:file:\/\/\/|[a-zA-Z]:[\\/]).*?\.(?:png|jpg|jpeg|gif|bmp|webp|heic)>?)\)/gi;
+        // 正则增强：捕获包含尺寸参数的描述部分，并放宽路径内特殊字符的容忍度
+        const regex = /!\[(.*?)\]\((<?(?:file:\/+|[a-zA-Z]:[\\/]).*?\.(?:png|jpg|jpeg|gif|bmp|webp|heic)>?)\)/gi;
         const matches = Array.from(content.matchAll(regex));
 
         if (matches.length === 0) return false;
 
-        // 获取目标附件文件夹
         const currentAttachFolder = await this.getTargetAttachmentFolder(file);
 
         for (const match of matches) {
             const fullMatch = match[0];
+            const altPartRaw = match[1] || ""; 
             const rawLink = match[2] || ""; 
 
             const finalPhysicalPath = await this.resolvePhysicalPath(rawLink);
@@ -354,7 +359,11 @@ export default class ImageTransferPlugin extends Plugin {
                 
                 await this.app.vault.createBinary(targetVaultPath, arrayBuffer);
 
-                const newLink = `![[${newFileName}]]`;
+                let altText = altPartRaw;
+                if (altText.startsWith('|')) {
+                    altText = altText.substring(1);
+                }
+                const newLink = `![[${newFileName}${altText ? "|" + altText : ""}]]`;
                 content = content.replace(fullMatch, newLink);
 
             } catch (err) {
@@ -371,44 +380,31 @@ export default class ImageTransferPlugin extends Plugin {
     }
 
     /**
-     * 核心功能二：扫描并重命名已被引入库内的乱码双链图片（如 QQ 导入图片）
+     * 核心功能二：重命名乱码双链图片
      */
     async processGarbledImages(file: TFile): Promise<number> {
         const content = await this.app.vault.read(file);
-        
-        const regex = /!\[\[(.*?)(?:\|.*?)?\]\]/gi;
+        const regex = /!\[\[([^|\]]+)(?:\|[^\]]+)?\]\]/gi;
         const matches = Array.from(content.matchAll(regex));
 
         if (matches.length === 0) return 0;
 
         let renamedCount = 0;
         const processedFilePaths = new Set<string>();
-
-        // 获取目标附件文件夹
         const currentAttachFolder = await this.getTargetAttachmentFolder(file);
 
         for (const match of matches) {
             if (!match[1]) continue;
-            
-            const rawLink = match[1].trim();
-
-            if (!/\.(png|jpg|jpeg|gif|bmp|webp|heic)$/i.test(rawLink)) {
-                continue;
-            }
+            const rawLink = match[1].trim(); 
+            if (!/\.(png|jpg|jpeg|gif|bmp|webp|heic)$/i.test(rawLink)) continue;
 
             const isGarbled = /[\\%{}()[\]~`^]/g.test(rawLink);
-            if (!isGarbled) {
-                continue;
-            }
+            if (!isGarbled) continue;
 
             const linkedFile = this.app.metadataCache.getFirstLinkpathDest(rawLink, file.path);
-            if (!linkedFile || !(linkedFile instanceof TFile)) {
-                continue; 
-            }
+            if (!linkedFile || !(linkedFile instanceof TFile)) continue; 
 
-            if (processedFilePaths.has(linkedFile.path)) {
-                continue; 
-            }
+            if (processedFilePaths.has(linkedFile.path)) continue; 
             processedFilePaths.add(linkedFile.path);
 
             try {
@@ -427,12 +423,10 @@ export default class ImageTransferPlugin extends Plugin {
 
                 await this.app.fileManager.renameFile(linkedFile, targetVaultPath);
                 renamedCount++;
-
             } catch (err) {
                 console.error(`❌ 重命名乱码图片失败: ${linkedFile.path}`, err);
             }
         }
-
         return renamedCount;
     }
 }
