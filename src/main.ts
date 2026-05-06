@@ -452,16 +452,16 @@ export default class ImageTransferPlugin extends Plugin {
 
 /**
      * 核心功能三：修复聊天记录排版逻辑 (回车+缩进 + 格式强制统一版)
-     * 优化说明：
-     * 1. 强制补全与对齐：无论原始格式（2026/5/6 或 05-06），统一强制输出为 YYYY/MM/DD HH:mm:ss。
-     * 2. 智能补零：通过正则表达式精确捕获月、日、时、分、秒并执行 padStart(2, '0')。
-     * 3. 结构化排版：严格执行 [用户名: 时间] \n \t [内容]。
-     * 4. 间距保留：保留聊天记录块之间的原始空行。
+     * 终极修复版：
+     * 1. 解决用户名标题行被误识别为上一条消息正文并缩进的问题。
+     * 2. 解决重复运行会导致多出空行的问题（幂等性修复）。
+     * 3. 严格规范 [用户名: 时间] \n \t [内容] 的层级结构。
      */
     async processChatLog(file: TFile): Promise<boolean> {
         const rawContent = await this.app.vault.read(file);
+        const currentYear = new Date().getFullYear().toString();
         
-        // 1. 定义时间戳特征锚点：匹配包含日期和时间的各种组合
+        // 匹配多种时间格式的正则锚点
         const timeAnchorRegex = /(?:\d{1,4}[-/]\d{1,2}[-/]\d{1,2}(?::?\s+)?\d{1,2}:\d{2}:\d{2})|(?:\d{1,2}[-/]\d{1,2}(?::?\s+)?\d{1,2}:\d{2}:\d{2})|(?:\d{1,2}:\d{2}:\d{2})/g;
         
         const anchors: { start: number, end: number, timeStr: string }[] = [];
@@ -472,16 +472,17 @@ export default class ImageTransferPlugin extends Plugin {
 
         if (anchors.length === 0) return false;
 
-        const currentYear = new Date().getFullYear().toString();
         let result = "";
         let lastProcessedIndex = 0;
 
         for (let i = 0; i < anchors.length; i++) {
             const anchor = anchors[i];
+            const nextAnchor = anchors[i + 1];
             if (!anchor) continue;
 
+            // 1. 定位当前条目的用户名起始点
             const textBefore = rawContent.substring(lastProcessedIndex, anchor.start);
-            // 匹配用户名：找紧邻时间戳前的连续字符
+            // 匹配紧邻时间戳之前的非空字符作为用户名
             const userMatch = textBefore.match(/([^\n[\]\s:|：]+)\s*[:：]?\s*$/);
 
             if (userMatch && userMatch[1]) {
@@ -489,91 +490,99 @@ export default class ImageTransferPlugin extends Plugin {
                 const userIndexInBefore = userMatch.index ?? 0;
                 const absoluteUserStart = lastProcessedIndex + userIndexInBefore;
 
-                // --- 1. 追加用户名之前的文本 ---
-                result += rawContent.substring(lastProcessedIndex, absoluteUserStart);
+                // 写入用户名之前的无关文本（如笔记或空行）
+                const fragment = rawContent.substring(lastProcessedIndex, absoluteUserStart);
+                result += fragment;
                 
+                // 确保新的一条消息标题行独立占行，且不产生重复空行
                 if (result.length > 0 && !result.endsWith('\n')) {
                     result += '\n';
                 }
 
-                // --- 2. 核心：时间格式强制规范化 (补年 + 补零) ---
+                // 2. 时间规范化 (YYYY/MM/DD HH:mm:ss)
                 let rawTime = anchor.timeStr.trim().replace(/-/g, '/');
-                let finalTimeStr = "";
-
-                // 解析日期和时间部分
                 const timePartMatch = rawTime.match(/(\d{1,2}:\d{2}:\d{2})$/);
-                const datePartMatch = rawTime.replace(/\s*(\d{1,2}:\d{2}:\d{2})$/, "").trim();
+                const datePartStr = rawTime.replace(/\s*(\d{1,2}:\d{2}:\d{2})$/, "").trim();
                 
-                const timeVal = timePartMatch ? timePartMatch[1] : "00:00:00";
-                let dateVal = datePartMatch;
-
-                // 如果没有日期部分，默认补上今日日期
+                let dateVal = datePartStr;
                 if (!dateVal) {
-                    const today = new Date();
-                    dateVal = `${currentYear}/${today.getMonth() + 1}/${today.getDate()}`;
-                } 
-                // 如果日期不包含年份（如 5/6 或 05/06）
-                else if (dateVal.split('/').length === 2) {
+                    const d = new Date();
+                    dateVal = `${currentYear}/${(d.getMonth()+1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
+                } else if (dateVal.split('/').length === 2) {
                     dateVal = `${currentYear}/${dateVal}`;
                 }
-
-                // 统一执行补零逻辑 (YYYY/MM/DD)
                 const dParts = dateVal.split('/');
-                if (dParts.length === 3 && dParts[0] && dParts[1] && dParts[2]) {
-                    const y = dParts[0].length === 2 ? `20${dParts[0]}` : dParts[0];
-                    const mm = dParts[1].padStart(2, '0');
-                    const dd = dParts[2].padStart(2, '0');
+                if (dParts.length === 3) {
+                    const y = (dParts[0]?.length === 2 ? `20${dParts[0]}` : dParts[0]) || currentYear;
+                    const mm = (dParts[1] || "").padStart(2, '0');
+                    const dd = (dParts[2] || "").padStart(2, '0');
                     dateVal = `${y}/${mm}/${dd}`;
                 }
 
-                // 统一时间部分补零 (HH:mm:ss)
-                if (timeVal) {
-                    const tParts = timeVal.split(':');
-                    if (tParts.length === 3 && tParts[0] && tParts[1] && tParts[2]) {
-                        const hh = tParts[0].padStart(2, '0');
-                        const min = tParts[1].padStart(2, '0');
-                        const ss = tParts[2].padStart(2, '0');
-                        finalTimeStr = `${dateVal} ${hh}:${min}:${ss}`;
+                const timeVal: string = (timePartMatch && timePartMatch[1]) ? timePartMatch[1] : "00:00:00";
+                const tParts = timeVal.split(':');
+                const finalTimeStr = `${dateVal} ${(tParts[0] || "00").padStart(2, '0')}:${(tParts[1] || "00").padStart(2, '0')}:${(tParts[2] || "00").padStart(2, '0')}`;
+
+                // 3. 写入标题行
+                result += `${userName}: ${finalTimeStr}\n`;
+
+                // 4. 正文边界计算：精准识别“消息内容”与“下一条消息的用户名”
+                let boundary: number;
+                const searchStart = anchor.end;
+                
+                if (nextAnchor) {
+                    const midText = rawContent.substring(searchStart, nextAnchor.start);
+                    const nextUserMatch = midText.match(/([^\n[\]\s:|：]+)\s*[:：]?\s*$/);
+                    if (nextUserMatch) {
+                        boundary = searchStart + (nextUserMatch.index ?? midText.length);
                     } else {
-                        finalTimeStr = `${dateVal} ${timeVal}`;
+                        boundary = nextAnchor.start;
                     }
                 } else {
-                    finalTimeStr = `${dateVal} 00:00:00`;
+                    const potentialContent = rawContent.substring(searchStart);
+                    const firstNewline = potentialContent.indexOf('\n');
+                    const doubleNewline = potentialContent.match(/\n\s*\n/);
+                    
+                    if (doubleNewline) {
+                        boundary = searchStart + (doubleNewline.index ?? potentialContent.length);
+                    } else if (firstNewline !== -1) {
+                        boundary = searchStart + firstNewline;
+                    } else {
+                        boundary = rawContent.length;
+                    }
                 }
 
-                // 写入标题行
-                result += `${userName}: ${finalTimeStr}`;
+                // 5. 提取正文并施加缩进
+                let bodyRaw = rawContent.substring(anchor.end, boundary);
+                // 仅移除开头残余的冒号
+                let bodyClean = bodyRaw.replace(/^[:：]\s*/, "").trim();
 
-                // --- 3. 截取正文 ---
-                const nextAnchor = anchors[i + 1];
-                let searchEnd = nextAnchor ? nextAnchor.start : rawContent.length;
-                let messageBodyFull = rawContent.substring(anchor.end, searchEnd);
-                
-                const nextUserMatch = messageBodyFull.match(/([^\n[\]\s:|：]+)\s*[:：]?\s*$/);
-                let messageActualEnd = messageBodyFull.length;
-                if (nextUserMatch) {
-                    messageActualEnd = nextUserMatch.index ?? messageBodyFull.length;
-                }
-                
-                let messageContent = messageBodyFull.substring(0, messageActualEnd).trim();
-                messageContent = messageContent.replace(/^[:：]\s*/, "");
-
-                // --- 4. 排版：换行 + Tab ---
-                if (messageContent) {
-                    const indentedBody = messageContent.replace(/\n+/g, '\n\t');
-                    result += `\n\t${indentedBody}\n`;
+                if (bodyClean) {
+                    // 每一行内容都要加 Tab 缩进
+                    const indentedLines = bodyClean.split('\n').map(line => `\t${line.trim()}`);
+                    result += indentedLines.join('\n') + '\n';
                 } else {
-                    result += '\n';
+                    // 如果正文为空，至少保留一个换行，但不要产生重复换行
+                    if (!result.endsWith('\n')) result += '\n';
                 }
-
-                lastProcessedIndex = anchor.end + messageActualEnd;
+                
+                lastProcessedIndex = boundary;
             } else {
                 result += rawContent.substring(lastProcessedIndex, anchor.end);
                 lastProcessedIndex = anchor.end;
             }
         }
 
-        result += rawContent.substring(lastProcessedIndex);
+        // 6. 追加剩余未处理文本
+        if (lastProcessedIndex < rawContent.length) {
+            const remaining = rawContent.substring(lastProcessedIndex);
+            // 避免在衔接处产生多余空行
+            if (remaining.startsWith('\n') && result.endsWith('\n')) {
+                result += remaining.substring(1);
+            } else {
+                result += remaining;
+            }
+        }
         
         if (result !== rawContent) {
             await this.app.vault.modify(file, result);
