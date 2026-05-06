@@ -96,6 +96,21 @@ export default class ImageTransferPlugin extends Plugin {
                                 }
                             });
                     });
+
+                    // 新增功能 3：修复聊天记录排版
+                    menu.addItem((item) => {
+                        item
+                            .setTitle('修复聊天记录排版')
+                            .setIcon('message-square')
+                            .onClick(async () => {
+                                const updated = await this.processChatLog(file);
+                                if (updated) {
+                                    new Notice(`✅ ${file.name} 聊天记录修复完成！`);
+                                } else {
+                                    new Notice(`ℹ️ 未发现符合格式的聊天记录。`);
+                                }
+                            });
+                    });
                 }
                 else if (file instanceof TFolder) {
                     // 功能 1：批量转换文件夹下的外部图片
@@ -121,11 +136,11 @@ export default class ImageTransferPlugin extends Plugin {
                             });
                     });
 
-                    // 功能 2：批量重命名文件夹下的乱码双链图片
+                    // 功能 2：批量重命名文件夹下的乱码图片
                     menu.addItem((item) => {
                         item
                             .setTitle('重命名该文件夹下的乱码图片')
-                            .setIcon('images')
+                            .setIcon('image-minus')
                             .onClick(async () => {
                                 new Notice(`🚀 开始扫描文件夹乱码图片: ${file.name}`);
                                 const files = this.app.vault.getMarkdownFiles();
@@ -140,13 +155,34 @@ export default class ImageTransferPlugin extends Plugin {
                                 new Notice(`🎉 扫描完毕！共重命名了 ${totalRenamed} 张乱码图片。`);
                             });
                     });
+
+                    // 新增功能 3：批量修复文件夹下的聊天记录
+                    menu.addItem((item) => {
+                        item
+                            .setTitle('修复文件夹下所有聊天记录排版')
+                            .setIcon('message-square')
+                            .onClick(async () => {
+                                new Notice(`🚀 正在修复文件夹聊天记录: ${file.name}`);
+                                const files = this.app.vault.getMarkdownFiles();
+                                let totalFixed = 0;
+                                const folderPrefix = file.path === '/' ? '' : file.path + '/';
+
+                                for (const mdFile of files) {
+                                    if (mdFile.path.startsWith(folderPrefix)) {
+                                        const updated = await this.processChatLog(mdFile);
+                                        if (updated) totalFixed++;
+                                    }
+                                }
+                                new Notice(`🎉 处理完毕！共修复了 ${totalFixed} 篇笔记。`);
+                            });
+                    });
                 }
             })
         );
 
         this.addSettingTab(new ImageTransferSettingTab(this.app, this));
 
-        new Notice("Image transfer v1.0.3 reloaded!");
+        new Notice("Image transfer v1.0.4 reloaded");
     }
 
     async loadSettings() {
@@ -229,7 +265,7 @@ export default class ImageTransferPlugin extends Plugin {
     }
 
     /**
-     * 弹性路径解析：双轨匹配 (原始 vs 解码)
+     * 弹性路径解析：针对特殊字符路径的递归搜索
      */
     private async flexibleProbing(base: string, remaining: string): Promise<string | null> {
         const target = remaining.replace(/^[\\/]+/, '');
@@ -242,7 +278,6 @@ export default class ImageTransferPlugin extends Plugin {
 
         try {
             const entries = await fs.readdir(base);
-            // 优先匹配更长的目录名，防止前缀干扰
             entries.sort((a, b) => b.length - a.length);
 
             for (const entry of entries) {
@@ -252,17 +287,12 @@ export default class ImageTransferPlugin extends Plugin {
                 for (let i = 0; i < target.length; i++) {
                     const char = target[i];
                     const nextChar = target[i + 1];
-
-                    // 启发式判断：仅当 \ 后跟敏感字符（如 [ ] ( ) 空格）时才视为转义，否则视为 Windows 路径分隔符
-                    // 修复 no-useless-escape：在字符集 [] 内部无需转义 ( ) [
                     const isMarkdownEscape = /[[\]()\s]/.test(nextChar || "");
                     if (char === '\\' && nextChar !== undefined && isMarkdownEscape) {
                         continue; 
                     }
                     
                     normalizedMatch += char;
-
-                    // 双轨校验：尝试原始字符匹配和 URL 解码后匹配
                     const decodedMatch = (() => {
                         try { return decodeURIComponent(normalizedMatch); } 
                         catch { return normalizedMatch; }
@@ -273,7 +303,7 @@ export default class ImageTransferPlugin extends Plugin {
                         consumedCount = i + 1;
                         break;
                     }
-                    if (normalizedMatch.length > entry.length + 10) break; // 提前退出长匹配
+                    if (normalizedMatch.length > entry.length + 10) break;
                 }
 
                 if (consumedCount > 0) {
@@ -288,12 +318,10 @@ export default class ImageTransferPlugin extends Plugin {
     }
 
     /**
-     * 更加灵活的协议剥离逻辑
+     * 将原始链接解析为物理磁盘路径
      */
     private async resolvePhysicalPath(rawPath: string): Promise<string | null> {
-        // 不再进行全局 decodeURIComponent，防止 %01 等字面量丢失
         let clean = rawPath.replace(/^<?file:\/+/i, '').replace(/>?$/, '');
-
         let driveRoot = "";
         let pathBody = clean;
 
@@ -306,36 +334,29 @@ export default class ImageTransferPlugin extends Plugin {
         }
 
         if (!driveRoot) return null;
-
         return await this.flexibleProbing(driveRoot, pathBody);
     }
 
     /**
-     * 核心功能一：处理外部绝对路径图片并引入 Vault
+     * 处理外部绝对路径图片并引入 Vault
      */
     async processNote(file: TFile): Promise<boolean> {
         let content = await this.app.vault.read(file);
         const originalContent = content;
 
-        // 正则增强：捕获包含尺寸参数的描述部分，并放宽路径内特殊字符的容忍度
         const regex = /!\[(.*?)\]\((<?(?:file:\/+|[a-zA-Z]:[\\/]).*?\.(?:png|jpg|jpeg|gif|bmp|webp|heic)>?)\)/gi;
         const matches = Array.from(content.matchAll(regex));
 
         if (matches.length === 0) return false;
-
         const currentAttachFolder = await this.getTargetAttachmentFolder(file);
 
         for (const match of matches) {
             const fullMatch = match[0];
             const altPartRaw = match[1] || ""; 
             const rawLink = match[2] || ""; 
-
             const finalPhysicalPath = await this.resolvePhysicalPath(rawLink);
 
-            if (!finalPhysicalPath) {
-                console.warn(`⚠️ 弹性探测未果: ${rawLink}`);
-                continue;
-            }
+            if (!finalPhysicalPath) continue;
 
             try {
                 const ext = path.extname(finalPhysicalPath);
@@ -375,12 +396,11 @@ export default class ImageTransferPlugin extends Plugin {
             await this.app.vault.modify(file, content);
             return true;
         }
-        
         return false;
     }
 
     /**
-     * 核心功能二：重命名乱码双链图片
+     * 重命名乱码双链图片
      */
     async processGarbledImages(file: TFile): Promise<number> {
         const content = await this.app.vault.read(file);
@@ -428,5 +448,137 @@ export default class ImageTransferPlugin extends Plugin {
             }
         }
         return renamedCount;
+    }
+
+/**
+     * 核心功能三：修复聊天记录排版逻辑 (回车+缩进 + 格式强制统一版)
+     * 优化说明：
+     * 1. 强制补全与对齐：无论原始格式（2026/5/6 或 05-06），统一强制输出为 YYYY/MM/DD HH:mm:ss。
+     * 2. 智能补零：通过正则表达式精确捕获月、日、时、分、秒并执行 padStart(2, '0')。
+     * 3. 结构化排版：严格执行 [用户名: 时间] \n \t [内容]。
+     * 4. 间距保留：保留聊天记录块之间的原始空行。
+     */
+    async processChatLog(file: TFile): Promise<boolean> {
+        const rawContent = await this.app.vault.read(file);
+        
+        // 1. 定义时间戳特征锚点：匹配包含日期和时间的各种组合
+        const timeAnchorRegex = /(?:\d{1,4}[-/]\d{1,2}[-/]\d{1,2}(?::?\s+)?\d{1,2}:\d{2}:\d{2})|(?:\d{1,2}[-/]\d{1,2}(?::?\s+)?\d{1,2}:\d{2}:\d{2})|(?:\d{1,2}:\d{2}:\d{2})/g;
+        
+        const anchors: { start: number, end: number, timeStr: string }[] = [];
+        let m;
+        while ((m = timeAnchorRegex.exec(rawContent)) !== null) {
+            anchors.push({ start: m.index, end: m.index + m[0].length, timeStr: m[0] });
+        }
+
+        if (anchors.length === 0) return false;
+
+        const currentYear = new Date().getFullYear().toString();
+        let result = "";
+        let lastProcessedIndex = 0;
+
+        for (let i = 0; i < anchors.length; i++) {
+            const anchor = anchors[i];
+            if (!anchor) continue;
+
+            const textBefore = rawContent.substring(lastProcessedIndex, anchor.start);
+            // 匹配用户名：找紧邻时间戳前的连续字符
+            const userMatch = textBefore.match(/([^\n[\]\s:|：]+)\s*[:：]?\s*$/);
+
+            if (userMatch && userMatch[1]) {
+                const userName = userMatch[1].trim();
+                const userIndexInBefore = userMatch.index ?? 0;
+                const absoluteUserStart = lastProcessedIndex + userIndexInBefore;
+
+                // --- 1. 追加用户名之前的文本 ---
+                result += rawContent.substring(lastProcessedIndex, absoluteUserStart);
+                
+                if (result.length > 0 && !result.endsWith('\n')) {
+                    result += '\n';
+                }
+
+                // --- 2. 核心：时间格式强制规范化 (补年 + 补零) ---
+                let rawTime = anchor.timeStr.trim().replace(/-/g, '/');
+                let finalTimeStr = "";
+
+                // 解析日期和时间部分
+                const timePartMatch = rawTime.match(/(\d{1,2}:\d{2}:\d{2})$/);
+                const datePartMatch = rawTime.replace(/\s*(\d{1,2}:\d{2}:\d{2})$/, "").trim();
+                
+                const timeVal = timePartMatch ? timePartMatch[1] : "00:00:00";
+                let dateVal = datePartMatch;
+
+                // 如果没有日期部分，默认补上今日日期
+                if (!dateVal) {
+                    const today = new Date();
+                    dateVal = `${currentYear}/${today.getMonth() + 1}/${today.getDate()}`;
+                } 
+                // 如果日期不包含年份（如 5/6 或 05/06）
+                else if (dateVal.split('/').length === 2) {
+                    dateVal = `${currentYear}/${dateVal}`;
+                }
+
+                // 统一执行补零逻辑 (YYYY/MM/DD)
+                const dParts = dateVal.split('/');
+                if (dParts.length === 3 && dParts[0] && dParts[1] && dParts[2]) {
+                    const y = dParts[0].length === 2 ? `20${dParts[0]}` : dParts[0];
+                    const mm = dParts[1].padStart(2, '0');
+                    const dd = dParts[2].padStart(2, '0');
+                    dateVal = `${y}/${mm}/${dd}`;
+                }
+
+                // 统一时间部分补零 (HH:mm:ss)
+                if (timeVal) {
+                    const tParts = timeVal.split(':');
+                    if (tParts.length === 3 && tParts[0] && tParts[1] && tParts[2]) {
+                        const hh = tParts[0].padStart(2, '0');
+                        const min = tParts[1].padStart(2, '0');
+                        const ss = tParts[2].padStart(2, '0');
+                        finalTimeStr = `${dateVal} ${hh}:${min}:${ss}`;
+                    } else {
+                        finalTimeStr = `${dateVal} ${timeVal}`;
+                    }
+                } else {
+                    finalTimeStr = `${dateVal} 00:00:00`;
+                }
+
+                // 写入标题行
+                result += `${userName}: ${finalTimeStr}`;
+
+                // --- 3. 截取正文 ---
+                const nextAnchor = anchors[i + 1];
+                let searchEnd = nextAnchor ? nextAnchor.start : rawContent.length;
+                let messageBodyFull = rawContent.substring(anchor.end, searchEnd);
+                
+                const nextUserMatch = messageBodyFull.match(/([^\n[\]\s:|：]+)\s*[:：]?\s*$/);
+                let messageActualEnd = messageBodyFull.length;
+                if (nextUserMatch) {
+                    messageActualEnd = nextUserMatch.index ?? messageBodyFull.length;
+                }
+                
+                let messageContent = messageBodyFull.substring(0, messageActualEnd).trim();
+                messageContent = messageContent.replace(/^[:：]\s*/, "");
+
+                // --- 4. 排版：换行 + Tab ---
+                if (messageContent) {
+                    const indentedBody = messageContent.replace(/\n+/g, '\n\t');
+                    result += `\n\t${indentedBody}\n`;
+                } else {
+                    result += '\n';
+                }
+
+                lastProcessedIndex = anchor.end + messageActualEnd;
+            } else {
+                result += rawContent.substring(lastProcessedIndex, anchor.end);
+                lastProcessedIndex = anchor.end;
+            }
+        }
+
+        result += rawContent.substring(lastProcessedIndex);
+        
+        if (result !== rawContent) {
+            await this.app.vault.modify(file, result);
+            return true;
+        }
+        return false;
     }
 }
