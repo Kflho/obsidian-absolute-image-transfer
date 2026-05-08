@@ -450,18 +450,16 @@ export default class ImageTransferPlugin extends Plugin {
         return renamedCount;
     }
 
-/**
+    /**
      * 核心功能三：修复聊天记录排版逻辑 (回车+缩进 + 格式强制统一版)
-     * 终极修复版：
-     * 1. 解决用户名标题行被误识别为上一条消息正文并缩进的问题。
-     * 2. 解决重复运行会导致多出空行的问题（幂等性修复）。
-     * 3. 严格规范 [用户名: 时间] \n \t [内容] 的层级结构。
+     * 终极幂等版：
+     * 1. 彻底解决重复运行会导致多出空行的问题（完全幂等，不改变已有排版）。
+     * 2. 完美支持空行断开策略：仅将断开前的文本视作聊天内容，断开后作为笔记保留。
      */
     async processChatLog(file: TFile): Promise<boolean> {
         const rawContent = await this.app.vault.read(file);
         const currentYear = new Date().getFullYear().toString();
         
-        // 匹配多种时间格式的正则锚点
         const timeAnchorRegex = /(?:\d{1,4}[-/]\d{1,2}[-/]\d{1,2}(?::?\s+)?\d{1,2}:\d{2}:\d{2})|(?:\d{1,2}[-/]\d{1,2}(?::?\s+)?\d{1,2}:\d{2}:\d{2})|(?:\d{1,2}:\d{2}:\d{2})/g;
         
         const anchors: { start: number, end: number, timeStr: string }[] = [];
@@ -480,9 +478,7 @@ export default class ImageTransferPlugin extends Plugin {
             const nextAnchor = anchors[i + 1];
             if (!anchor) continue;
 
-            // 1. 定位当前条目的用户名起始点
             const textBefore = rawContent.substring(lastProcessedIndex, anchor.start);
-            // 匹配紧邻时间戳之前的非空字符作为用户名
             const userMatch = textBefore.match(/([^\n[\]\s:|：]+)\s*[:：]?\s*$/);
 
             if (userMatch && userMatch[1]) {
@@ -490,16 +486,21 @@ export default class ImageTransferPlugin extends Plugin {
                 const userIndexInBefore = userMatch.index ?? 0;
                 const absoluteUserStart = lastProcessedIndex + userIndexInBefore;
 
-                // 写入用户名之前的无关文本（如笔记或空行）
-                const fragment = rawContent.substring(lastProcessedIndex, absoluteUserStart);
+                // 1. 提取当前聊天记录之前的文本（笔记、空行等）
+                let fragment = rawContent.substring(lastProcessedIndex, absoluteUserStart);
+                
+                // 核心修复1：重叠换行抵消（防止多次运行导致换行符堆叠生长）
+                if (fragment.startsWith('\n') && result.endsWith('\n')) {
+                    fragment = fragment.substring(1);
+                }
+                
                 result += fragment;
                 
-                // 确保新的一条消息标题行独立占行，且不产生重复空行
+                // 确保聊天记录标题独占一行
                 if (result.length > 0 && !result.endsWith('\n')) {
                     result += '\n';
                 }
 
-                // 2. 时间规范化 (YYYY/MM/DD HH:mm:ss)
                 let rawTime = anchor.timeStr.trim().replace(/-/g, '/');
                 const timePartMatch = rawTime.match(/(\d{1,2}:\d{2}:\d{2})$/);
                 const datePartStr = rawTime.replace(/\s*(\d{1,2}:\d{2}:\d{2})$/, "").trim();
@@ -511,6 +512,7 @@ export default class ImageTransferPlugin extends Plugin {
                 } else if (dateVal.split('/').length === 2) {
                     dateVal = `${currentYear}/${dateVal}`;
                 }
+
                 const dParts = dateVal.split('/');
                 if (dParts.length === 3) {
                     const y = (dParts[0]?.length === 2 ? `20${dParts[0]}` : dParts[0]) || currentYear;
@@ -523,28 +525,39 @@ export default class ImageTransferPlugin extends Plugin {
                 const tParts = timeVal.split(':');
                 const finalTimeStr = `${dateVal} ${(tParts[0] || "00").padStart(2, '0')}:${(tParts[1] || "00").padStart(2, '0')}:${(tParts[2] || "00").padStart(2, '0')}`;
 
-                // 3. 写入标题行
                 result += `${userName}: ${finalTimeStr}\n`;
 
-                // 4. 正文边界计算：精准识别“消息内容”与“下一条消息的用户名”
+                // 2. 正文边界计算：支持空行笔记剥离
                 let boundary: number;
                 const searchStart = anchor.end;
                 
                 if (nextAnchor) {
                     const midText = rawContent.substring(searchStart, nextAnchor.start);
                     const nextUserMatch = midText.match(/([^\n[\]\s:|：]+)\s*[:：]?\s*$/);
-                    if (nextUserMatch) {
-                        boundary = searchStart + (nextUserMatch.index ?? midText.length);
+                    const maxOffset = nextUserMatch ? (nextUserMatch.index ?? midText.length) : midText.length;
+                    
+                    const potentialContent = midText.substring(0, maxOffset);
+                    const doubleNewline = potentialContent.match(/\n\s*\n/);
+                    
+                    if (doubleNewline && doubleNewline.index !== undefined) {
+                        boundary = searchStart + doubleNewline.index;
                     } else {
-                        boundary = nextAnchor.start;
+                        boundary = searchStart + maxOffset;
                     }
                 } else {
                     const potentialContent = rawContent.substring(searchStart);
-                    const firstNewline = potentialContent.indexOf('\n');
                     const doubleNewline = potentialContent.match(/\n\s*\n/);
                     
-                    if (doubleNewline) {
-                        boundary = searchStart + (doubleNewline.index ?? potentialContent.length);
+                    // 核心修复2：严格定位末条消息内容的实际结束点，防止跳过同行的文字
+                    let contentStartOffset = 0;
+                    const leadingSpaceMatch = potentialContent.match(/^[\s\n]+/);
+                    if (leadingSpaceMatch) {
+                        contentStartOffset = leadingSpaceMatch[0].length;
+                    }
+                    const firstNewline = potentialContent.indexOf('\n', contentStartOffset);
+                    
+                    if (doubleNewline && doubleNewline.index !== undefined) {
+                        boundary = searchStart + doubleNewline.index;
                     } else if (firstNewline !== -1) {
                         boundary = searchStart + firstNewline;
                     } else {
@@ -552,17 +565,14 @@ export default class ImageTransferPlugin extends Plugin {
                     }
                 }
 
-                // 5. 提取正文并施加缩进
+                // 3. 提取正文并施加缩进
                 let bodyRaw = rawContent.substring(anchor.end, boundary);
-                // 仅移除开头残余的冒号
                 let bodyClean = bodyRaw.replace(/^[:：]\s*/, "").trim();
 
                 if (bodyClean) {
-                    // 每一行内容都要加 Tab 缩进
                     const indentedLines = bodyClean.split('\n').map(line => `\t${line.trim()}`);
                     result += indentedLines.join('\n') + '\n';
                 } else {
-                    // 如果正文为空，至少保留一个换行，但不要产生重复换行
                     if (!result.endsWith('\n')) result += '\n';
                 }
                 
@@ -573,10 +583,8 @@ export default class ImageTransferPlugin extends Plugin {
             }
         }
 
-        // 6. 追加剩余未处理文本
         if (lastProcessedIndex < rawContent.length) {
             const remaining = rawContent.substring(lastProcessedIndex);
-            // 避免在衔接处产生多余空行
             if (remaining.startsWith('\n') && result.endsWith('\n')) {
                 result += remaining.substring(1);
             } else {
@@ -584,6 +592,7 @@ export default class ImageTransferPlugin extends Plugin {
             }
         }
         
+        // 只有当输出内容发生了真正变化时才会触发生效，解决无限重复触发的Bug
         if (result !== rawContent) {
             await this.app.vault.modify(file, result);
             return true;
