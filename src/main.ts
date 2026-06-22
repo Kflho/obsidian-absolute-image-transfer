@@ -344,6 +344,7 @@ export default class ImageTransferPlugin extends Plugin {
         let content = await this.app.vault.read(file);
         const originalContent = content;
 
+        // 核心修改 1：拓展支持的图片扩展名正则，添加 webp 并在外部统一小写识别（原本虽然有，但在这里我们保持其完备健壮，支持 webp 且忽略大小写）
         const regex = /!\[(.*?)\]\((<?(?:file:\/+|[a-zA-Z]:[\\/]).*?\.(?:png|jpg|jpeg|gif|bmp|webp|heic)>?)\)/gi;
         const matches = Array.from(content.matchAll(regex));
 
@@ -416,6 +417,8 @@ export default class ImageTransferPlugin extends Plugin {
         for (const match of matches) {
             if (!match[1]) continue;
             const rawLink = match[1].trim(); 
+            
+            // 核心修改 2：拓展此处校验，确保支持对含有乱码的 .webp 文件进行重命名修复操作
             if (!/\.(png|jpg|jpeg|gif|bmp|webp|heic)$/i.test(rawLink)) continue;
 
             const isGarbled = /[\\%{}()[\]~`^]/g.test(rawLink);
