@@ -4,11 +4,13 @@ import ImageTransferPlugin from "./main";
 export interface ImageTransferSettings {
 	attachmentLocation: string;
 	customAttachmentFolder: string;
+	imageNamePreset: string;
 }
 
 export const DEFAULT_SETTINGS: ImageTransferSettings = {
 	attachmentLocation: 'system',
-	customAttachmentFolder: 'Attachments'
+	customAttachmentFolder: 'Attachments',
+	imageNamePreset: 'Pasted image {YYYY}{MM}{DD}{HH}{mm}{ss}'
 }
 
 export class ImageTransferSettingTab extends PluginSettingTab {
@@ -52,5 +54,16 @@ export class ImageTransferSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}));
 		}
+
+		new Setting(containerEl)
+			.setName('图片命名预设')
+			.setDesc('支持占位符: {YYYY} {MM} {DD} {HH} {mm} {ss}')
+			.addText(text => text
+				.setPlaceholder('Pasted image {YYYY}{MM}{DD}{HH}{mm}{ss}')
+				.setValue(this.plugin.settings.imageNamePreset)
+				.onChange(async (value) => {
+					this.plugin.settings.imageNamePreset = value;
+					await this.plugin.saveSettings();
+				}));
 	}
 }
