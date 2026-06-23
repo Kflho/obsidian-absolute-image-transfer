@@ -993,9 +993,9 @@ class ConfirmRenameModal extends Modal {
         cancelBtn.addEventListener('click', () => this.close());
 
         const confirmBtn = buttonContainer.createEl('button', { text: '确认重命名', cls: 'mod-cta' });
-        confirmBtn.addEventListener('click', async () => {
+        confirmBtn.addEventListener('click', () => {
             this.close();
-            await this.onConfirm();
+            void this.onConfirm();
         });
     }
 
