@@ -9,6 +9,8 @@
 市面上常见的同类插件（如 Local Images Plus）遇到这种“变态”路径基本都会直接报错罢工。
 因此，我写了这个插件。它的目标只有一个：用最硬核的算法，把你笔记里的本地图片无论如何都安全地拔下来、重命名，并转换为最干净的 Obsidian 原生双链。
 
+📂 项目地址：https://github.com/Kflho/obsidian-absolute-image-transfer
+
 ✨ 核心特性
 
 一键提取与原生转换：自动解析形如 file:/// 或 C:\ 的外部绝对路径，将图片物理搬运至仓库内，并将链接替换为原生的 ![[Pasted image 2026xxxx.png]]。
