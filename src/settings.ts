@@ -5,12 +5,14 @@ export interface ImageTransferSettings {
 	attachmentLocation: string;
 	customAttachmentFolder: string;
 	imageNamePreset: string;
+	renameLinkFormat: string;
 }
 
 export const DEFAULT_SETTINGS: ImageTransferSettings = {
 	attachmentLocation: 'system',
 	customAttachmentFolder: 'Attachments',
-	imageNamePreset: 'Pasted image {YYYY}{MM}{DD}{HH}{mm}{ss}'
+	imageNamePreset: 'Pasted image {YYYY}{MM}{DD}{HH}{mm}{ss}',
+	renameLinkFormat: 'full'
 }
 
 export class ImageTransferSettingTab extends PluginSettingTab {
@@ -63,6 +65,18 @@ export class ImageTransferSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.imageNamePreset)
 				.onChange(async (value) => {
 					this.plugin.settings.imageNamePreset = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('重命名后链接格式')
+			.setDesc('控制图片重命名后，笔记内链接使用完整路径还是仅文件名')
+			.addDropdown(dropdown => dropdown
+				.addOption('full', '完整路径')
+				.addOption('filename', '仅文件名')
+				.setValue(this.plugin.settings.renameLinkFormat)
+				.onChange(async (value) => {
+					this.plugin.settings.renameLinkFormat = value;
 					await this.plugin.saveSettings();
 				}));
 	}

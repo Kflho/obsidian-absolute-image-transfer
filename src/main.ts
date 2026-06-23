@@ -5,6 +5,7 @@ import * as path from 'path';
 
 export default class ImageTransferPlugin extends Plugin {
     settings!: ImageTransferSettings;
+    private statusBarItem: HTMLElement | null = null;
 
     async onload() {
         await this.loadSettings();
@@ -72,17 +73,31 @@ export default class ImageTransferPlugin extends Plugin {
                         totalCount += await this.countAllImages(file);
                     }
                     if (totalCount === 0) {
-                        new Notice('ℹ️ 仓库中没有需要重命名的图片。');
+                        await this.fixAllImageLinkFormats();
+                        new Notice('ℹ️ 仓库中没有需要重命名的图片，已检查并修正链接格式。');
                         return;
                     }
                     new ConfirmRenameModal(this.app, totalCount, async () => {
-                        let renamedCount = 0;
-                        for (const file of files) {
-                            renamedCount += await this.renameAllImages(file);
+                        try {
+                            let renamedCount = 0;
+                            this.showProgress(0, files.length);
+                            for (let i = 0; i < files.length; i++) {
+                                const f = files[i];
+                                if (!f) continue;
+                                renamedCount += await this.renameAllImages(f);
+                                this.showProgress(i + 1, files.length);
+                            }
+                            await this.fixAllImageLinkFormats();
+                            this.finishProgress('✓ 重命名完成');
+                            new Notice(`🎉 全局处理完毕！共重命名了 ${renamedCount} 张图片。`);
+                        } catch (e) {
+                            this.clearProgress();
+                            console.error(e);
+                            new Notice('❌ 重命名中断，请检查控制台。');
                         }
-                        new Notice(`🎉 全局处理完毕！共重命名了 ${renamedCount} 张图片。`);
                     }).open();
                 } catch (e) {
+                    this.clearProgress();
                     console.error(e);
                     new Notice('❌ 全局处理中断，请检查控制台。');
                 }
@@ -117,12 +132,18 @@ export default class ImageTransferPlugin extends Plugin {
                             .setTitle('重命名本文件内的乱码图片')
                             .setIcon('image-minus')
                             .onClick(async () => {
-                                new Notice(`正在扫描乱码图片: ${file.name}`);
-                                const count = await this.processGarbledImages(file);
-                                if (count > 0) {
-                                    new Notice(`✅ 成功重命名 ${count} 张乱码图片！`);
-                                } else {
-                                    new Notice(`ℹ️ 未发现乱码图片。`);
+                                try {
+                                    const count = await this.processGarbledImages(file);
+                                    if (count > 0) {
+                                        await this.fixAllImageLinkFormats();
+                                        new Notice(`✅ 成功重命名 ${count} 张乱码图片！`);
+                                    } else {
+                                        new Notice(`ℹ️ 未发现乱码图片。`);
+                                    }
+                                } catch (e) {
+                                    this.clearProgress();
+                                    console.error(e);
+                                    new Notice('❌ 重命名中断，请检查控制台。');
                                 }
                             });
                     });
@@ -148,15 +169,28 @@ export default class ImageTransferPlugin extends Plugin {
                             .setTitle('将该文件中的所有图片重命名为预设格式')
                             .setIcon('image')
                             .onClick(async () => {
-                                const count = await this.countAllImages(file);
-                                if (count === 0) {
-                                    new Notice(`ℹ️ ${file.name} 中没有需要重命名的图片。`);
-                                    return;
+                                try {
+                                    const count = await this.countAllImages(file);
+                                    if (count === 0) {
+                                        await this.fixAllImageLinkFormats();
+                                        new Notice(`ℹ️ ${file.name} 中没有需要重命名的图片，已检查并修正链接格式。`);
+                                        return;
+                                    }
+                                    new ConfirmRenameModal(this.app, count, async () => {
+                                        try {
+                                            const renamed = await this.renameAllImages(file);
+                                            await this.fixAllImageLinkFormats();
+                                            new Notice(`✅ ${file.name} 成功重命名 ${renamed} 张图片！`);
+                                        } catch (e) {
+                                            this.clearProgress();
+                                            console.error(e);
+                                            new Notice('❌ 重命名中断，请检查控制台。');
+                                        }
+                                    }).open();
+                                } catch (e) {
+                                    console.error(e);
+                                    new Notice('❌ 处理中断，请检查控制台。');
                                 }
-                                new ConfirmRenameModal(this.app, count, async () => {
-                                    const renamed = await this.renameAllImages(file);
-                                    new Notice(`✅ ${file.name} 成功重命名 ${renamed} 张图片！`);
-                                }).open();
                             });
                     });
                 }
@@ -190,17 +224,29 @@ export default class ImageTransferPlugin extends Plugin {
                             .setTitle('重命名该文件夹下的乱码图片')
                             .setIcon('image-minus')
                             .onClick(async () => {
-                                new Notice(`🚀 开始扫描文件夹乱码图片: ${file.name}`);
-                                const files = this.app.vault.getMarkdownFiles();
-                                let totalRenamed = 0;
-                                const folderPrefix = file.path === '/' ? '' : file.path + '/';
+                                try {
+                                    const allFiles = this.app.vault.getMarkdownFiles();
+                                    const folderPrefix = file.path === '/' ? '' : file.path + '/';
+                                    const files = allFiles.filter(f => f.path.startsWith(folderPrefix));
 
-                                for (const mdFile of files) {
-                                    if (mdFile.path.startsWith(folderPrefix)) {
-                                        totalRenamed += await this.processGarbledImages(mdFile);
+                                    this.showProgress(0, files.length);
+                                    let totalRenamed = 0;
+                                    for (let i = 0; i < files.length; i++) {
+                                        const f = files[i];
+                                        if (!f) continue;
+                                        totalRenamed += await this.processGarbledImages(f);
+                                        this.showProgress(i + 1, files.length);
                                     }
+                                    if (totalRenamed > 0) {
+                                        await this.fixAllImageLinkFormats();
+                                    }
+                                    this.finishProgress('✓ 重命名完成');
+                                    new Notice(`🎉 扫描完毕！共重命名了 ${totalRenamed} 张乱码图片。`);
+                                } catch (e) {
+                                    this.clearProgress();
+                                    console.error(e);
+                                    new Notice('❌ 处理中断，请检查控制台。');
                                 }
-                                new Notice(`🎉 扫描完毕！共重命名了 ${totalRenamed} 张乱码图片。`);
                             });
                     });
 
@@ -231,29 +277,45 @@ export default class ImageTransferPlugin extends Plugin {
                             .setTitle('将该文件夹下的所有图片重命名为预设格式')
                             .setIcon('images')
                             .onClick(async () => {
-                                const markdownFiles = this.app.vault.getMarkdownFiles();
-                                const folderPrefix = file.path === '/' ? '' : file.path + '/';
+                                try {
+                                    const allFiles = this.app.vault.getMarkdownFiles();
+                                    const folderPrefix = file.path === '/' ? '' : file.path + '/';
+                                    const files = allFiles.filter(f => f.path.startsWith(folderPrefix));
 
-                                // 先扫描统计该文件夹下所有图片数量
-                                let totalCount = 0;
-                                for (const mdFile of markdownFiles) {
-                                    if (mdFile.path.startsWith(folderPrefix)) {
+                                    // 先扫描统计该文件夹下所有图片数量
+                                    let totalCount = 0;
+                                    for (const mdFile of files) {
                                         totalCount += await this.countAllImages(mdFile);
                                     }
-                                }
-                                if (totalCount === 0) {
-                                    new Notice(`ℹ️ 文件夹 ${file.name} 中没有需要重命名的图片。`);
-                                    return;
-                                }
-                                new ConfirmRenameModal(this.app, totalCount, async () => {
-                                    let totalRenamed = 0;
-                                    for (const mdFile of markdownFiles) {
-                                        if (mdFile.path.startsWith(folderPrefix)) {
-                                            totalRenamed += await this.renameAllImages(mdFile);
-                                        }
+                                    if (totalCount === 0) {
+                                        await this.fixAllImageLinkFormats();
+                                        new Notice(`ℹ️ 文件夹 ${file.name} 中没有需要重命名的图片，已检查并修正链接格式。`);
+                                        return;
                                     }
-                                    new Notice(`🎉 文件夹 ${file.name} 处理完毕！共重命名了 ${totalRenamed} 张图片。`);
-                                }).open();
+                                    new ConfirmRenameModal(this.app, totalCount, async () => {
+                                        try {
+                                            let totalRenamed = 0;
+                                            this.showProgress(0, files.length);
+                                            for (let i = 0; i < files.length; i++) {
+                                                const f = files[i];
+                                                if (!f) continue;
+                                                totalRenamed += await this.renameAllImages(f);
+                                                this.showProgress(i + 1, files.length);
+                                            }
+                                            await this.fixAllImageLinkFormats();
+                                            this.finishProgress('✓ 重命名完成');
+                                            new Notice(`🎉 文件夹 ${file.name} 处理完毕！共重命名了 ${totalRenamed} 张图片。`);
+                                        } catch (e) {
+                                            this.clearProgress();
+                                            console.error(e);
+                                            new Notice('❌ 重命名中断，请检查控制台。');
+                                        }
+                                    }).open();
+                                } catch (e) {
+                                    this.clearProgress();
+                                    console.error(e);
+                                    new Notice('❌ 处理中断，请检查控制台。');
+                                }
                             });
                     });
                 }
@@ -262,7 +324,7 @@ export default class ImageTransferPlugin extends Plugin {
 
         this.addSettingTab(new ImageTransferSettingTab(this.app, this));
 
-        new Notice("Image transfer v1.0.5 reloaded");
+        new Notice("Image transfer v1.0.6 reloaded");
     }
 
     async loadSettings() {
@@ -272,6 +334,41 @@ export default class ImageTransferPlugin extends Plugin {
 
     async saveSettings() {
         await this.saveData(this.settings);
+    }
+
+    /**
+     * 在底部状态栏显示进度指示 (e.g. "3/36")
+     */
+    private showProgress(current: number, total: number) {
+        if (!this.statusBarItem) {
+            this.statusBarItem = this.addStatusBarItem();
+        }
+        this.statusBarItem.setText(`${current}/${total}`);
+    }
+
+    /**
+     * 进度完成：短暂显示完成信息后自动移除
+     */
+    private finishProgress(message: string) {
+        if (this.statusBarItem) {
+            this.statusBarItem.setText(message);
+            setTimeout(() => {
+                if (this.statusBarItem) {
+                    this.statusBarItem.remove();
+                    this.statusBarItem = null;
+                }
+            }, 3000);
+        }
+    }
+
+    /**
+     * 出错时清除状态栏进度
+     */
+    private clearProgress() {
+        if (this.statusBarItem) {
+            this.statusBarItem.remove();
+            this.statusBarItem = null;
+        }
     }
 
     /**
@@ -576,6 +673,10 @@ export default class ImageTransferPlugin extends Plugin {
 
             if (processedFilePaths.has(linkedFile.path)) continue;
             processedFilePaths.add(linkedFile.path);
+
+            // 跳过已符合预设命名格式的图片，避免重复重命名
+            if (this.matchesNamePreset(linkedFile.name)) continue;
+
             count++;
         }
         return count;
@@ -608,6 +709,9 @@ export default class ImageTransferPlugin extends Plugin {
             if (processedFilePaths.has(linkedFile.path)) continue;
             processedFilePaths.add(linkedFile.path);
 
+            // 跳过已符合预设命名格式的图片，避免重复重命名
+            if (this.matchesNamePreset(linkedFile.name)) continue;
+
             try {
                 const ext = `.${linkedFile.extension}`;
                 const currentTime = window.moment();
@@ -628,6 +732,83 @@ export default class ImageTransferPlugin extends Plugin {
             }
         }
         return renamedCount;
+    }
+
+    /**
+     * 检查文件名是否已匹配预设命名格式，避免重复重命名
+     */
+    private matchesNamePreset(fileName: string): boolean {
+        const preset = this.settings.imageNamePreset;
+        if (!preset) return false;
+
+        const parts = preset.split(/(\{YYYY\}|\{MM\}|\{DD\}|\{HH\}|\{mm\}|\{ss\})/);
+        let pattern = '^';
+        for (const part of parts) {
+            switch (part) {
+                case '{YYYY}': pattern += '\\d{4}'; break;
+                case '{MM}':   pattern += '\\d{2}'; break;
+                case '{DD}':   pattern += '\\d{2}'; break;
+                case '{HH}':   pattern += '\\d{2}'; break;
+                case '{mm}':   pattern += '\\d{2}'; break;
+                case '{ss}':   pattern += '\\d{2}'; break;
+                default:
+                    pattern += part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+        }
+        pattern += '\\.\\w+$';
+
+        try {
+            const regex = new RegExp(pattern, 'i');
+            return regex.test(fileName);
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * 批量修正全库图片链接格式（重命名完成后调用一次即可）
+     * 遍历所有笔记中符合条件的图片链接，按设置统一为"完整路径"或"仅文件名"
+     */
+    private async fixAllImageLinkFormats() {
+        const format = this.settings.renameLinkFormat || 'full';
+        const allMdFiles = this.app.vault.getMarkdownFiles();
+
+        for (const mdFile of allMdFiles) {
+            const content = await this.app.vault.read(mdFile);
+            const regex = /!\[\[([^|\]]+)(\|[^\]]+)?\]\]/g;
+            let newContent = content;
+            let offset = 0;
+            let modified = false;
+
+            let match: RegExpExecArray | null;
+            while ((match = regex.exec(content)) !== null) {
+                if (!match[1]) continue;
+                const linkPath = match[1].trim();
+                const alias = match[2] || '';
+
+                // 仅处理图片链接
+                if (!/\.(png|jpg|jpeg|gif|bmp|webp|heic)$/i.test(linkPath)) continue;
+
+                const resolved = this.app.metadataCache.getFirstLinkpathDest(linkPath, mdFile.path);
+                if (!resolved || !(resolved instanceof TFile)) continue;
+
+                const desiredPath = format === 'filename' ? resolved.name : resolved.path;
+
+                // 格式已经正确则跳过，保证幂等
+                if (linkPath === desiredPath) continue;
+
+                const replacement = `![[${desiredPath}${alias}]]`;
+                const start = match.index + offset;
+                const end = start + match[0].length;
+                newContent = newContent.substring(0, start) + replacement + newContent.substring(end);
+                offset += replacement.length - match[0].length;
+                modified = true;
+            }
+
+            if (modified) {
+                await this.app.vault.modify(mdFile, newContent);
+            }
+        }
     }
 
     /**
