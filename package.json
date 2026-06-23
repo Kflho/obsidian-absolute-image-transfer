@@ -1,7 +1,7 @@
 {
 
 	"name": "absolute-image-transfer",
-	"version": "1.0.0",
+	"version": "1.0.6",
 	"description": "Locally transfers images with absolute paths into the vault and converts them to internal links.",
 	"main": "main.js",
 	"author": "KahoTAT",
