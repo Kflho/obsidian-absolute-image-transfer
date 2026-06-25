@@ -352,7 +352,7 @@ export default class ImageTransferPlugin extends Plugin {
     private finishProgress(message: string) {
         if (this.statusBarItem) {
             this.statusBarItem.setText(message);
-            setTimeout(() => {
+            window.setTimeout(() => {
                 if (this.statusBarItem) {
                     this.statusBarItem.remove();
                     this.statusBarItem = null;
@@ -402,8 +402,9 @@ export default class ImageTransferPlugin extends Plugin {
         let targetFolder = "/";
 
         if (location === "system") {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-            const rawAttachmentPath = (this.app.vault as any).getConfig("attachmentFolderPath");
+            // Access Vault.getConfig to read the system attachment folder path.
+            // This method exists at runtime but is not exposed in Obsidian's public type definitions.
+            const rawAttachmentPath = (this.app.vault as unknown as { getConfig: (key: string) => unknown }).getConfig("attachmentFolderPath");
             let attachmentPath = "/";
             
             if (typeof rawAttachmentPath === "string" && rawAttachmentPath.trim() !== "") {

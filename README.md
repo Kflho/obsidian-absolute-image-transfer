@@ -1,3 +1,80 @@
+# Absolute Image Transfer
+
+An Obsidian desktop plugin that transfers externally-linked images (absolute paths) into your vault and converts them to clean `![[...]]` internal links. Also handles garbled-image renaming and QQ/WeChat chat log reformatting.
+
+**Repository:** https://github.com/Kflho/obsidian-absolute-image-transfer
+
+## Why This Plugin?
+
+When you paste Markdown notes from QQ, WeChat, or local editors like Typora into Obsidian, you typically face two frustrating problems:
+
+1. **Fragile absolute paths:** Pasted images use links like `!(file:///D:\...\xxx.gif)`. The images never enter your vault, and if you clean your chat cache, all images in your notes instantly break (File not found).
+
+2. **Garbled filenames:** QQ generates absurd filenames like `Q)\TN\Q)TNF]S%MRO@AI1(F[I]OYC.gif`, sometimes containing control characters (`%01`) or folder names with backslashes and brackets like `C]\GU`. Obsidian's renderer chokes on these — it can't distinguish paths from garbage, leading to blank screens or errors.
+
+Most similar plugins (e.g., Local Images Plus) fail on these extreme edge cases. This plugin uses a hardened path-resolution engine to reliably extract, rename, and convert your local images into clean Obsidian wikilinks.
+
+## Installation
+
+### Manual Installation
+
+1. Download `main.js` and `manifest.json` from the [Releases](https://github.com/Kflho/obsidian-absolute-image-transfer/releases) page.
+2. In your Obsidian vault, navigate to `.obsidian/plugins/`.
+3. Create a folder named `obsidian-absolute-image-transfer` and place both files inside.
+4. Restart Obsidian, go to **Settings → Community Plugins**, disable Safe Mode, and enable **Absolute Image Transfer**.
+
+> **⚠️ IMPORTANT: Do NOT use Ctrl+Z / Undo after renaming images!**
+>
+> This plugin modifies physical files on disk (not just note text). If you rename garbled images and then press Ctrl+Z in the editor:
+> - The text will revert to the old `![[garbled_name.png]]` link
+> - But the file on disk has already been renamed
+> - Result: broken image (File not found)
+>
+> **Recommendation:** Back up your vault (Git or cloud) before batch operations on large folders.
+
+## Quick Start
+
+### 1. Right-Click Context Menu (Recommended)
+
+- **Single note:** Right-click any `.md` file → **Convert external images in this file** or **Rename garbled images in this file**.
+- **Entire folder:** Right-click a folder → **Convert external images under this folder** to recursively process all notes.
+- **Fix chat logs:** Right-click a note or folder → **Fix chat log formatting** to convert messy QQ/WeChat timestamps into clean indented format.
+
+### 2. Command Palette
+
+Open the command palette (`Ctrl/Cmd + P`) and search for:
+- **Convert external images in current note**
+- **Convert external images in entire vault**
+- **Rename all images in vault to preset format**
+
+### 3. Global Batch Processing
+
+Use **Convert external images in entire vault** from the command palette when migrating an entire workspace (e.g., from Typora) into Obsidian.
+
+## Features
+
+- **One-click transfer:** Auto-detects `file:///` or `C:\` absolute paths, copies images into vault, replaces links with `![[Pasted image YYYYMMDDHHmmss.ext]]`.
+- **Image size preservation (v1.0.3+):** Retains Markdown image size syntax (`![|350]` or `![[image.png|425]]`) after conversion.
+- **Hardened path resolution engine:** Handles URL-encoded characters (`%01`, `%20`), markdown escape backslashes, and special characters in folder names (`C]\GU`).
+- **Respects Obsidian attachment settings (v1.0.2+):** Follows your system attachment folder configuration. Auto-creates nested directories as needed.
+- **Garbled image renaming:** One-click cleanup of internally-linked images with garbled names — renames files AND auto-updates all referencing notes.
+- **Custom naming presets (v1.0.5+):** Define your own filename format with `{YYYY} {MM} {DD} {HH} {mm} {ss}` placeholders.
+- **Link format control (v1.0.6+):** Choose between full-path or filename-only wikilinks after renaming.
+- **Chat log formatter (v1.0.4+):** Reformats QQ/WeChat exported text into `Username: YYYY/MM/DD HH:mm:ss` with tab-indented messages. Strictly idempotent.
+- **WebP & HEIC support:** All image operations support png, jpg, jpeg, gif, bmp, webp, and heic formats.
+
+## Supported Image Formats
+
+`png`, `jpg`, `jpeg`, `gif`, `bmp`, `webp`, `heic` — case-insensitive.
+
+## License
+
+MIT License.
+
+---
+
+# 中文说明 / Chinese README
+
 开发这个插件的初衷非常简单：天下苦 QQ/微信 等软件的导出图片久矣！
 
 当你从这些社交软件（或者 Typora 等本地编辑器）直接复制 Markdown 笔记到 Obsidian 时，通常会面临两个让人崩溃的问题：
@@ -6,7 +83,7 @@
 
 极其阴间的乱码命名：某些版本的 QQ 命名简直反人类，比如 Q)\TN\Q)TNF]S%MRO@AI1(F[I]OYC.gif，甚至包含 %01 这种控制字符或者像 C]\GU 这样带反斜杠和括号的文件夹名。这会导致 Obsidian 的渲染引擎彻底懵逼——它分不清哪个是路径、哪个是乱码，最终直接白屏或报错。
 
-市面上常见的同类插件（如 Local Images Plus）遇到这种“变态”路径基本都会直接报错罢工。
+市面上常见的同类插件（如 Local Images Plus）遇到这种”变态”路径基本都会直接报错罢工。
 因此，我写了这个插件。它的目标只有一个：用最硬核的算法，把你笔记里的本地图片无论如何都安全地拔下来、重命名，并转换为最干净的 Obsidian 原生双链。
 
 📂 项目地址：https://github.com/Kflho/obsidian-absolute-image-transfer
