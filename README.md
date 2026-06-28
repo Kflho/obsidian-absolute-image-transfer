@@ -60,6 +60,8 @@ Use **Convert external images in entire vault** from the command palette when mi
 - **Garbled image renaming:** One-click cleanup of internally-linked images with garbled names — renames files AND auto-updates all referencing notes.
 - **Custom naming presets (v1.0.5+):** Define your own filename format with `{YYYY} {MM} {DD} {HH} {mm} {ss}` placeholders.
 - **Link format control (v1.0.6+):** Choose between full-path or filename-only wikilinks after renaming.
+- **Vault-wide basename dedup (v1.0.8+):** Four-layer conflict detection using `app.vault.getFiles()` pre-scan + `Map<basename, vaultPath>` tracking — guarantees zero duplicate image names across all folders.
+- **Force rename mode (v1.0.8+):** New command and context-menu entries to forcibly rename ALL images (including already-preset-matching ones) to fresh unique names.
 - **Chat log formatter (v1.0.4+):** Reformats QQ/WeChat exported text into `Username: YYYY/MM/DD HH:mm:ss` with tab-indented messages. Strictly idempotent.
 - **WebP & HEIC support:** All image operations support png, jpg, jpeg, gif, bmp, webp, and heic formats.
 
@@ -166,6 +168,18 @@ Obsidian 的编辑器会乖乖把文本变回那个 ![[乱码名字.png]]。
 建议：在对包含大量笔记的文件夹执行批量操作前，建议先用 Git 或云盘备份一下仓库。操作完就让它过去，千万别撤销。
 
 📄 更新日志
+
+🎉 v1.0.8：全库去重与强制重命名
+
+修复：重大同名冲突修复。全面重构冲突检测机制，将 `reservedBasenames` 从 `Set` 升级为 `Map<basename, vaultPath>`，精确区分"同一文件被多条笔记引用"和"不同文件路径冲突"两种场景。
+
+修复：用 `app.vault.getFiles()` 全量扫描替代 `getFirstLinkpathDest` 元数据缓存查询，确保跨文件夹的孤立图片也能被正确检测，彻底杜绝"不同文件夹同名图片"的漏检问题。
+
+新增："强制重命名"指令。命令面板新增「强制重命名整个仓库中的所有图片（包括已符合格式的图片）」，右键菜单同步新增单文件/文件夹强制重命名入口。强制模式下跳过 `matchesNamePreset` 检查，对所有图片全部重新生成唯一名称。
+
+新增：全操作互斥锁 `isRenaming`。所有 9 个操作入口（命令面板 + 右键菜单）统一加锁，finally 块保证释放，防止并发操作引发时间戳碰撞。
+
+加强：`generateUniqueTargetPath` 循环增加 100,000 次安全上限，防止极端情况下死循环。
 
 🎉 v1.0.6：链接格式控制与批量优化
 
