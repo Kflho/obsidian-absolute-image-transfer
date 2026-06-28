@@ -7,8 +7,6 @@ export default class ImageTransferPlugin extends Plugin {
     settings!: ImageTransferSettings;
     private statusBarItem: HTMLElement | null = null;
     private isRenaming = false;
-    private _noticeSuppressed = false;
-    private _origNotice: typeof Notice | null = null;
 
     async onload() {
         await this.loadSettings();
@@ -56,24 +54,29 @@ export default class ImageTransferPlugin extends Plugin {
                     return;
                 }
                 this.isRenaming = true;
+                this.suppressNotices();
                 try {
-                    new Notice('🚀 开始全局批量处理，请稍候...');
                     const files = this.app.vault.getMarkdownFiles();
                     let processedCount = 0;
                     const reservedPaths = new Map<string, string>();
                     const reservedBasenames = this.buildVaultBasenameMap();
 
-                    for (const file of files) {
-                        const updated = await this.processNote(file, reservedPaths, reservedBasenames);
-                        if (updated) {
-                            processedCount++;
-                        }
+                    this.showProgress(0, files.length, '📷 外部图片转换');
+                    for (let i = 0; i < files.length; i++) {
+                        const f = files[i];
+                        if (!f) continue;
+                        const updated = await this.processNote(f, reservedPaths, reservedBasenames);
+                        if (updated) processedCount++;
+                        this.showProgress(i + 1, files.length, '📷 外部图片转换');
                     }
+                    this.finishProgress('✅ 转换完成');
                     new Notice(`🎉 全局处理完毕！共更新了 ${processedCount} 篇笔记。`);
                 } catch (e) {
+                    this.clearProgress();
                     console.error(e);
                     new Notice('❌ 全局处理中断，请检查控制台。');
                 } finally {
+                    this.restoreNotices();
                     this.isRenaming = false;
                 }
             }
@@ -350,24 +353,27 @@ export default class ImageTransferPlugin extends Plugin {
                                     return;
                                 }
                                 this.isRenaming = true;
+                                this.suppressNotices();
                                 try {
-                                    new Notice(`🚀 开始处理文件夹外部图片: ${file.name}`);
                                     const files = this.app.vault.getMarkdownFiles();
                                     let processedCount = 0;
                                     const folderPrefix = file.path === '/' ? '' : file.path + '/';
+                                    const folderFiles = files.filter(f => f.path.startsWith(folderPrefix));
                                     const reservedPaths = new Map<string, string>();
                                     const reservedBasenames = this.buildVaultBasenameMap();
 
-                                    for (const mdFile of files) {
-                                        if (mdFile.path.startsWith(folderPrefix)) {
-                                            const updated = await this.processNote(mdFile, reservedPaths, reservedBasenames);
-                                            if (updated) {
-                                                processedCount++;
-                                            }
-                                        }
+                                    this.showProgress(0, folderFiles.length, '📷 外部图片转换');
+                                    for (let i = 0; i < folderFiles.length; i++) {
+                                        const mdFile = folderFiles[i];
+                                        if (!mdFile) continue;
+                                        const updated = await this.processNote(mdFile, reservedPaths, reservedBasenames);
+                                        if (updated) processedCount++;
+                                        this.showProgress(i + 1, folderFiles.length, '📷 外部图片转换');
                                     }
+                                    this.finishProgress('✅ 转换完成');
                                     new Notice(`🎉 文件夹 ${file.name} 外部图片处理完毕！共更新了 ${processedCount} 篇笔记。`);
                                 } finally {
+                                    this.restoreNotices();
                                     this.isRenaming = false;
                                 }
                             });
@@ -607,46 +613,19 @@ export default class ImageTransferPlugin extends Plugin {
     }
 
     /**
-     * 屏蔽 Obsidian 内部 "已修改 N 条链接" 通知，避免批量重命名时通知轰炸。
-     * 通过临时替换 require('obsidian').Notice 实现拦截。
+     * 屏蔽 Obsidian 通知弹窗（批量操作时避免 "已修改 N 条链接" 刷屏）。
+     * 通过给 body 添加 class，配合 styles.css 中的 CSS 规则隐藏 .notice-container。
      */
-    /* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, no-undef */
     private suppressNotices() {
-        if (this._noticeSuppressed) return;
-        try {
-            const obsidian = require('obsidian');
-            this._origNotice = obsidian.Notice;
-            // 临时替换 Notice 为过滤版本：吞噬链接更新通知，透传其他通知
-            // @ts-expect-error - 动态 class extends，基类来自 require 引用
-            obsidian.Notice = class extends this._origNotice {
-                constructor(message: unknown, timeout?: number) {
-                    if (typeof message === 'string' && /已修改.*链接/.test(message)) {
-                        return;
-                    }
-                    super(message, timeout);
-                }
-            };
-            this._noticeSuppressed = true;
-        } catch {
-            // require 不可用时优雅降级，不影响核心功能
-        }
+        document.body.classList.add('suppress-notices');
     }
 
     /**
-     * 恢复被 suppressNotices() 替换的原始 Notice 类
+     * 恢复通知弹窗显示
      */
     private restoreNotices() {
-        if (!this._noticeSuppressed || !this._origNotice) return;
-        try {
-            const obsidian = require('obsidian');
-            obsidian.Notice = this._origNotice;
-        } catch {
-            // 优雅降级
-        }
-        this._origNotice = null;
-        this._noticeSuppressed = false;
+        document.body.classList.remove('suppress-notices');
     }
-    /* eslint-enable @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, no-undef */
 
     /**
      * 辅助功能：递归创建多级文件夹
