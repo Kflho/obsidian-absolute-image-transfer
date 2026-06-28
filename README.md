@@ -62,6 +62,9 @@ Use **Convert external images in entire vault** from the command palette when mi
 - **Link format control (v1.0.6+):** Choose between full-path or filename-only wikilinks after renaming.
 - **Vault-wide basename dedup (v1.0.8+):** Four-layer conflict detection using `app.vault.getFiles()` pre-scan + `Map<basename, vaultPath>` tracking — guarantees zero duplicate image names across all folders.
 - **Force rename mode (v1.0.8+):** New command and context-menu entries to forcibly rename ALL images (including already-preset-matching ones) to fresh unique names.
+- **Robust wikilink parsing (v1.0.9+):** Non-greedy regex engine handles filenames with embedded `]` brackets (e.g., `![[[]()(( 1.jpg]]`). Three-layer garbled detection catches URL-encoded residues and auto-generated patterns.
+- **Notice suppression (v1.1.0+):** Batch rename operations automatically suppress Obsidian's repetitive "modified N links" notifications — no more spam during vault-wide processing.
+- **Status bar progress (v1.1.0+):** Real-time progress indicator with descriptive labels (e.g., "📷 图片重命名: 33/100") in the bottom status bar during batch operations.
 - **Chat log formatter (v1.0.4+):** Reformats QQ/WeChat exported text into `Username: YYYY/MM/DD HH:mm:ss` with tab-indented messages. Strictly idempotent.
 - **WebP & HEIC support:** All image operations support png, jpg, jpeg, gif, bmp, webp, and heic formats.
 
@@ -168,6 +171,24 @@ Obsidian 的编辑器会乖乖把文本变回那个 ![[乱码名字.png]]。
 建议：在对包含大量笔记的文件夹执行批量操作前，建议先用 Git 或云盘备份一下仓库。操作完就让它过去，千万别撤销。
 
 📄 更新日志
+
+🎉 v1.1.0：批量操作体验大提升
+
+新增：批量重命名时自动屏蔽 Obsidian 系统通知轰炸。所有批量操作（全库/文件夹重命名、乱码扫描）执行期间，"已修改 N 条链接" 的弹窗不再刷屏，仅显示最终结果。
+
+新增：右下角状态栏实时进度文字。批量操作时显示如「📷 图片重命名: 33/100」「🔍 乱码图片扫描: 12/50」，完成后显示「✅ 重命名完成」持续 5 秒后自动消失。
+
+新增：右键菜单「强制重命名当前文件/文件夹内所有图片」入口，单文件层面也支持强制模式，无需全局操作。
+
+修复：`resolveImageLink` 文件解析回退逻辑移除特殊字符守卫，纯数字+点号等非标准命名（如 `1.1.1.jpg`）在原生 API 解析失败时也能通过全局查找正确匹配。
+
+🎉 v1.0.9：乱码识别与链接解析全面加固
+
+修复：Wikilink 正则引擎重写。`[^|\]]+` → `[^|]+?`（非贪婪匹配），彻底解决文件名内嵌 `]` 字符导致链接识别失败的问题（如 `![[[]()(( 1.jpg]]`）。
+
+修复：乱码检测升级为三层判定体系。① 特殊字符检测 ② `decodeURIComponent` URL 编码残留检测 ③ 文件名主干自动生成模式识别（纯数字+点号+空格+连字符+下划线，不含任何字母 → 判定为编码残留/自动命名）。全面覆盖 `1.1.1.jpg`、`1.2.3. 4.jpg` 等非标准命名。
+
+新增：`resolveImageLink()` 共享文件解析器。先走 Obsidian 原生 `getFirstLinkpathDest`（支持相对路径），失败时全局回退为 `app.vault.getFiles()` 按名查找。所有 6 处文件解析调用点统一替换，确保含 `[](){}` 等正则特殊字符的文件名能被正确定位。
 
 🎉 v1.0.8：全库去重与强制重命名
 
