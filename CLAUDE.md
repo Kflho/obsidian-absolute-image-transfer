@@ -36,7 +36,12 @@ styles.css       # Plugin CSS (minimal, 3 rules)
 
 1. **External image transfer** (`processNote`) — Regex `!\[(.*?)\]\((<?(?:file:\/+|[a-zA-Z]:[\\/]).*?\.(?:png|jpg|jpeg|gif|bmp|webp|heic)>?)\)` matches absolute-path image links, resolves physical paths via `flexibleProbing`, copies file into vault at the configured attachment folder, replaces link with `![[Pasted image YYYYMMDDHHmmss.ext]]`.
 
-2. **Garbled image renaming** (`processGarbledImages`) — Finds `![[...]]` links where the filename contains special chars (`\%{}()[]~\`^`), checks if the file exists in the vault, renames to clean `Pasted image ...` format via `app.fileManager.renameFile`.
+2. **Garbled image renaming** (`processGarbledImages`) — Finds `![[...]]` links matching image extensions, then applies a three-condition garbled detection:
+   - **Special chars** (`[\\%{}()[\]~\`^]`): backslash, percent, brackets, braces, tilde, backtick, caret
+   - **URL-encoded sequences**: `decodeURIComponent(rawLink) !== rawLink` indicates encoding residues
+   - **Pure digit+dot naming**: filename stem (without extension) contains only digits, dots, spaces, hyphens, underscores and no letters — clearly auto-generated (e.g., `123.456.png`)
+   
+   Garbled files are renamed to clean `Pasted image ...` format via `app.fileManager.renameFile`.
 
 3. **Chat log formatting** (`processChatLog`) — Parses QQ/WeChat-style timestamps + usernames from raw text, reformats into `Username: YYYY/MM/DD HH:mm:ss\n\tmessage content` with tab-indented message bodies. **Must be strictly idempotent** — guarded by `if (result !== rawContent)` before writing. Repeated runs must not produce additional newlines or whitespace changes.
 
@@ -72,3 +77,24 @@ Uses Node.js `fs/promises` and `path` for filesystem access. `isDesktopOnly: tru
 - CI (`.github/workflows/lint.yml`): runs on push/PR, tests Node 20.x and 22.x — `npm ci` → `npm run build` → `npm run lint`
 - `version-bump.mjs` reads `npm_package_version`, writes `manifest.json` and `versions.json`
 - Releases: tag must match `manifest.json` version (no leading `v`); attach `main.js`, `manifest.json`, `styles.css`
+
+## 提交分支到 GitHub 时的自动化流程
+
+当用户要求提交分支到 GitHub 时（例如 "提交到github"、"push到github"、"推送到远程"等），必须自动执行以下步骤：
+
+1. **从分支名提取版本号**：当前分支名通常包含版本号，如 `1.1.1` 或 `1.1.1更新`。从分支名中提取语义版本号（如 `1.1.1`）。
+
+2. **更新所有版本号文件**，将提取的版本号同步到以下三个文件：
+   - `manifest.json` → 更新 `"version"` 字段
+   - `package.json` → 更新 `"version"` 字段
+   - `versions.json` → 在末尾添加新版本条目 `"x.y.z": "1.0.0"`（如果尚不存在）
+
+3. **构建并提交**：
+   ```bash
+   npm run build    # 类型检查 + 打包
+   git add -A
+   git commit -m "版本号: x.y.z"
+   git push origin <当前分支名>
+   ```
+
+版本号应保持一致：`manifest.json` 的 version、`package.json` 的 version、以及 `versions.json` 中最新的 key 三者必须一致。
