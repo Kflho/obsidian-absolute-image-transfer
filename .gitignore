@@ -15,6 +15,12 @@ main.js
 # Exclude sourcemaps
 *.map
 
+# Generated / bundled files (large, not needed in repo)
+*.min.js
+*.bundle.js
+dist/
+build/
+
 # obsidian
 data.json
 
