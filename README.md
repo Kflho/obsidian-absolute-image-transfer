@@ -1,243 +1,236 @@
 # Absolute Image Transfer
 
-An Obsidian desktop plugin that transfers externally-linked images (absolute paths) into your vault and converts them to clean `![[...]]` internal links. Also handles garbled-image renaming and QQ/WeChat chat log reformatting.
+Obsidian desktop plugin that transfers externally-linked images into your vault and renames garbled image files — all through right-click or command palette.
 
-**Repository:** https://github.com/Kflho/obsidian-absolute-image-transfer
+## What this plugin does
 
-## Why This Plugin?
+### 1. Transfer external images into the vault
 
-When you paste Markdown notes from QQ, WeChat, or local editors like Typora into Obsidian, you typically face two frustrating problems:
+Converts absolute-path image links like `file:///D:\Images\photo.png` or `C:\Users\...\pic.jpg` into standard Obsidian `![[...]]` wikilinks. The image file is copied into your vault (respecting your attachment folder settings) and the link is updated automatically.
 
-1. **Fragile absolute paths:** Pasted images use links like `!(file:///D:\...\xxx.gif)`. The images never enter your vault, and if you clean your chat cache, all images in your notes instantly break (File not found).
+**Example — before:**
+```markdown
+![|350](file:///D:\QQ_Data\Image\screenshot.png)
+```
 
-2. **Garbled filenames:** QQ generates absurd filenames like `Q)\TN\Q)TNF]S%MRO@AI1(F[I]OYC.gif`, sometimes containing control characters (`%01`) or folder names with backslashes and brackets like `C]\GU`. Obsidian's renderer chokes on these — it can't distinguish paths from garbage, leading to blank screens or errors.
+**Example — after:**
+```markdown
+![[Pasted image 20260420123045.png|350]]
+```
 
-Most similar plugins (e.g., Local Images Plus) fail on these extreme edge cases. This plugin uses a hardened path-resolution engine to reliably extract, rename, and convert your local images into clean Obsidian wikilinks.
+### 2. Rename garbled images to a clean preset format
+
+Finds images with messy filenames (e.g., `Q)\TN\Q)TNF]S%MRO@AI1(F[I]OYC.gif`, `%01...png`, `123.456.jpg`) and renames them to a configurable clean format. Renames the physical file AND updates all referencing notes across the vault.
+
+**Default preset:** `Pasted image {YYYY}{MM}{DD}{HH}{mm}{ss}` → `Pasted image 20260420123045.png`
+
+Customize the format in settings using placeholders: `{YYYY}`, `{MM}`, `{DD}`, `{HH}`, `{mm}`, `{ss}`.
+
+### 3. Fix QQ/WeChat chat log formatting
+
+Reformats exported chat logs from messy single-line timestamps into clean, indented format:
+
+**Example — before:**
+```
+张三 2024/1/5 14:30:25你好，文件收到了吗
+```
+
+**Example — after:**
+```
+张三: 2024/01/05 14:30:25
+	你好，文件收到了吗
+```
+
+Idempotent — running it multiple times on the same text won't produce duplicate newlines or extra whitespace.
+
+## How to use
+
+| Method | Action |
+|--------|--------|
+| Right-click a `.md` file | Convert / rename / fix chat logs for that note |
+| Right-click a folder | Batch process all notes in that folder |
+| Command palette (`Ctrl+P`) | Convert images in current note or entire vault; rename all images vault-wide |
+
+### Settings
+
+- **Attachment location** — where transferred images are stored (system default, vault root, current folder, subfolder, or custom path)
+- **Image naming preset** — format for renamed images, supports `{YYYY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}`
+- **Link format after rename** — use full path (`folder/image.png`) or filename only (`image.png`)
+
+## Supported formats
+
+`png` `jpg` `jpeg` `gif` `bmp` `webp` `heic` (case-insensitive)
+
+## Important
+
+**Do not use Ctrl+Z after renaming images.** This plugin renames physical files on disk. Undoing in the editor reverts the text link but not the filename — causing broken images.
+
+Back up your vault before bulk operations.
 
 ## Installation
 
-### Manual Installation
+1. Download `main.js`, `manifest.json`, and `styles.css` from [Releases](https://github.com/Kflho/obsidian-absolute-image-transfer/releases)
+2. Place them in `.obsidian/plugins/obsidian-absolute-image-transfer/`
+3. Enable the plugin in Settings → Community Plugins
 
-1. Download `main.js` and `manifest.json` from the [Releases](https://github.com/Kflho/obsidian-absolute-image-transfer/releases) page.
-2. In your Obsidian vault, navigate to `.obsidian/plugins/`.
-3. Create a folder named `obsidian-absolute-image-transfer` and place both files inside.
-4. Restart Obsidian, go to **Settings → Community Plugins**, disable Safe Mode, and enable **Absolute Image Transfer**.
+## Changelog
 
-> **⚠️ IMPORTANT: Do NOT use Ctrl+Z / Undo after renaming images!**
->
-> This plugin modifies physical files on disk (not just note text). If you rename garbled images and then press Ctrl+Z in the editor:
-> - The text will revert to the old `![[garbled_name.png]]` link
-> - But the file on disk has already been renamed
-> - Result: broken image (File not found)
->
-> **Recommendation:** Back up your vault (Git or cloud) before batch operations on large folders.
+### v1.1.2
+- Progress indicator uses the built-in status bar (not a floating overlay), updating per-image during single-file operations
+- Notice suppression now covers all operation types, including single-file right-click actions
+- MutationObserver backup for notice suppression to catch edge cases where CSS alone is insufficient
 
-## Quick Start
+### v1.1.1
+- CSS class `suppress-notices` added to `document.body` during batch operations, hiding system notification popups via `styles.css`
+- Status bar progress for vault-wide and folder-wide operations with descriptive labels (e.g. `📷 图片重命名: 33/100`)
 
-### 1. Right-Click Context Menu (Recommended)
+### v1.1.0
+- Batch operation notice suppression via CSS
+- Real-time progress labels in the status bar during transfer and rename operations
+- Garbled image detection improvements: pure digit+dot filenames now recognized as auto-generated
 
-- **Single note:** Right-click any `.md` file → **Convert external images in this file** or **Rename garbled images in this file**.
-- **Entire folder:** Right-click a folder → **Convert external images under this folder** to recursively process all notes.
-- **Fix chat logs:** Right-click a note or folder → **Fix chat log formatting** to convert messy QQ/WeChat timestamps into clean indented format.
+### v1.0.9
+- Non-greedy wikilink regex to handle filenames with embedded `]` brackets
+- Three-layer garbled detection: special chars, URL-encoded residues, auto-generated patterns
+- `resolveImageLink()` shared resolver with `getFirstLinkpathDest` fallback to global file search
 
-### 2. Command Palette
+### v1.0.8
+- Vault-wide basename deduplication using pre-scanned `Map<basename, vaultPath>`
+- Force rename mode: renames all images including those already matching the preset format
+- Operation mutex lock (`isRenaming`) to prevent concurrent operations
 
-Open the command palette (`Ctrl/Cmd + P`) and search for:
-- **Convert external images in current note**
-- **Convert external images in entire vault**
-- **Rename all images in vault to preset format**
+### v1.0.6
+- Link format setting: choose between full path or filename-only wikilinks after rename
+- Images already matching the preset naming format are automatically skipped
+- Batch progress shown in status bar instead of repeated notification popups
 
-### 3. Global Batch Processing
+### v1.0.5
+- Custom image naming presets with `{YYYY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}` placeholders
+- Right-click menu for renaming all images in a single file, folder, or entire vault
+- Batch link format correction after all renames complete
 
-Use **Convert external images in entire vault** from the command palette when migrating an entire workspace (e.g., from Typora) into Obsidian.
+### v1.0.4
+- Chat log formatting for QQ/WeChat exported text
+- WebP and HEIC format support
 
-## Features
+### v1.0.3
+- Image size syntax preservation (`![|350]`) after conversion
+- Hardened path resolution engine for special characters and URL-encoded paths
 
-- **One-click transfer:** Auto-detects `file:///` or `C:\` absolute paths, copies images into vault, replaces links with `![[Pasted image YYYYMMDDHHmmss.ext]]`.
-- **Image size preservation (v1.0.3+):** Retains Markdown image size syntax (`![|350]` or `![[image.png|425]]`) after conversion.
-- **Hardened path resolution engine:** Handles URL-encoded characters (`%01`, `%20`), markdown escape backslashes, and special characters in folder names (`C]\GU`).
-- **Respects Obsidian attachment settings (v1.0.2+):** Follows your system attachment folder configuration. Auto-creates nested directories as needed.
-- **Garbled image renaming:** One-click cleanup of internally-linked images with garbled names — renames files AND auto-updates all referencing notes.
-- **Custom naming presets (v1.0.5+):** Define your own filename format with `{YYYY} {MM} {DD} {HH} {mm} {ss}` placeholders.
-- **Link format control (v1.0.6+):** Choose between full-path or filename-only wikilinks after renaming.
-- **Vault-wide basename dedup (v1.0.8+):** Four-layer conflict detection using `app.vault.getFiles()` pre-scan + `Map<basename, vaultPath>` tracking — guarantees zero duplicate image names across all folders.
-- **Force rename mode (v1.0.8+):** New command and context-menu entries to forcibly rename ALL images (including already-preset-matching ones) to fresh unique names.
-- **Robust wikilink parsing (v1.0.9+):** Non-greedy regex engine handles filenames with embedded `]` brackets (e.g., `![[[]()(( 1.jpg]]`). Three-layer garbled detection catches URL-encoded residues and auto-generated patterns.
-- **Notice suppression (v1.1.0+):** Batch rename operations automatically suppress Obsidian's repetitive "modified N links" notifications — no more spam during vault-wide processing.
-- **Status bar progress (v1.1.0+):** Real-time progress indicator with descriptive labels (e.g., "📷 图片重命名: 33/100") in the bottom status bar during batch operations.
-- **Chat log formatter (v1.0.4+):** Reformats QQ/WeChat exported text into `Username: YYYY/MM/DD HH:mm:ss` with tab-indented messages. Strictly idempotent.
-- **WebP & HEIC support:** All image operations support png, jpg, jpeg, gif, bmp, webp, and heic formats.
+### v1.0.2
+- Respects Obsidian system attachment folder settings
+- Auto-creates nested attachment directories
 
-## Supported Image Formats
+### v1.0.1
+- Garbled image detection and renaming for already-imported images
+- Vault-wide link auto-update via Obsidian's `fileManager.renameFile` API
 
-`png`, `jpg`, `jpeg`, `gif`, `bmp`, `webp`, `heic` — case-insensitive.
+### v1.0.0
+- Initial release: external image transfer with absolute path resolution
 
 ## License
 
-MIT License.
+MIT
 
 ---
 
-# 中文说明 / Chinese README
+# 中文说明
 
-开发这个插件的初衷非常简单：天下苦 QQ/微信 等软件的导出图片久矣！
+将笔记中的外部绝对路径图片搬运到 Obsidian 仓库内，并转换为 `![[...]]` 双链。同时提供乱码图片重命名、QQ/微信聊天记录排版修复功能。
 
-当你从这些社交软件（或者 Typora 等本地编辑器）直接复制 Markdown 笔记到 Obsidian 时，通常会面临两个让人崩溃的问题：
+## 功能
 
-脆弱的物理链接：粘贴进来的图片格式往往是 !(file:///D:\...\xxx.gif)。这不仅意味着图片根本没存进你的 Obsidian 仓库，而且只要你稍微清理一下聊天记录缓存，笔记里的图片瞬间全部失效（File not found）。
+### 1. 外部图片转入仓库
 
-极其阴间的乱码命名：某些版本的 QQ 命名简直反人类，比如 Q)\TN\Q)TNF]S%MRO@AI1(F[I]OYC.gif，甚至包含 %01 这种控制字符或者像 C]\GU 这样带反斜杠和括号的文件夹名。这会导致 Obsidian 的渲染引擎彻底懵逼——它分不清哪个是路径、哪个是乱码，最终直接白屏或报错。
+把 `file:///D:\图片\photo.png` 或 `C:\Users\...\pic.jpg` 这类绝对路径图片复制到仓库的附件目录，并将链接替换为 `![[Pasted image 20260420123045.png]]`。图片存放位置遵循你的 Obsidian 附件设置。
 
-市面上常见的同类插件（如 Local Images Plus）遇到这种”变态”路径基本都会直接报错罢工。
-因此，我写了这个插件。它的目标只有一个：用最硬核的算法，把你笔记里的本地图片无论如何都安全地拔下来、重命名，并转换为最干净的 Obsidian 原生双链。
+### 2. 乱码图片重命名为预设格式
 
-📂 项目地址：https://github.com/Kflho/obsidian-absolute-image-transfer
+识别文件名中带特殊字符（`\`、`%`、`[]`、`()` 等）、URL 编码残留、纯数字+点号等自动生成命名的图片，统一重命名为干净格式。物理文件与全库引用链接同步更新。
 
-✨ 核心特性
+**默认格式：** `Pasted image {YYYY}{MM}{DD}{HH}{mm}{ss}`
 
-一键提取与原生转换：自动解析形如 file:/// 或 C:\ 的外部绝对路径，将图片物理搬运至仓库内，并将链接替换为原生的 ![[Pasted image 2026xxxx.png]]。
+可在设置中自定义占位符组合。
 
-图像缩放尺寸保留 (v1.0.3)：如果你在转换前给图片设置了显示大小（例如 ![|350](file://...) 或 ![[乱码图.png|425]]），插件在转换 and 重命名后会为你完美保留这个缩放参数。
+### 3. 修复 QQ/微信聊天记录排版
 
-究极防御的路径探测引擎 (v1.0.3)：
+将导出的聊天文本从混乱的单行时间戳格式，转换为带缩进的清晰排版。严格幂等，重复执行不会产生多余空行。
 
-完美兼容空格及中文字符。
+## 使用方式
 
-双轨匹配算法：无视路径中混杂的 URL 编码（如 %01、%20）、无视 Obsidian 强加的转义反斜杠 \、无视括号 () [] 等特殊符号。只要这张图还在你的硬盘上，哪怕在 C]\GU 这种奇葩文件夹里，插件掘地三尺也能把它找出来拷走。
+| 方式 | 操作 |
+|------|------|
+| 右键 `.md` 文件 | 转换、重命名、修复聊天记录 |
+| 右键文件夹 | 批量处理文件夹下所有笔记 |
+| 命令面板 (`Ctrl+P`) | 转换当前笔记 / 全库转换 / 全库重命名 |
 
-完全顺从你的附件设置 (v1.0.2)：插件不会强行把图片丢在当前目录。它会精准读取并遵循你 Obsidian 系统设置中的“附件默认存放路径”。无论你是设置在根目录、当前目录、还是指定的 Assets 文件夹，深层目录不存在时还会自动为你递归创建。
+## 支持的图片格式
 
-库内乱码文件大清洗：如果图片已经进了仓库，但名字还是 ![[7A\6...gif]] 这种阴间格式。没关系，直接右键一键洗白，重命名文件的同时，全库所有引用该图片的笔记链接都会瞬间自动更新。
+`png` `jpg` `jpeg` `gif` `bmp` `webp` `heic`
 
-聊天记录排版修复 (v1.0.4)：专门针对从 QQ/微信 直接粘贴的文本。自动识别“用户名 时间”这种乱序或单行排版，并强制修复为标准格式：标题行展示“用户名: 标准时间”，消息内容自动换行并添加 Tab 缩进，视觉体验拉满。
+## 注意事项
 
-🚀 快速上手
+**重命名图片后请勿使用 Ctrl+Z 撤销。** 插件会修改磁盘上的物理文件名，编辑器的撤销只能回退文本中的链接文字，无法还原文件名，会导致图片无法显示。
 
-插件安装后，无需复杂配置，直接开箱即用。以下是三种最常用的场景：
+批量操作前建议备份仓库。
 
-1. 右键菜单 (Context Menu) —— 强烈推荐！
+## 更新日志
 
-洗白单篇笔记：在左侧文件树中，右键点击任意 .md 文件，选择 转换本文件内的外部图片 或 重命名本文件内的乱码图片。
+### v1.1.2
+- 进度指示改用 Obsidian 自带状态栏显示，单文件操作时按图片数量逐张更新进度
+- 通知屏蔽覆盖所有操作类型，包括单文件右键操作
+- 新增 MutationObserver 作为通知屏蔽的兜底方案
 
-批量处理整个文件夹：整理别人的库或刚导出一大批笔记？右键点击那个文件夹，选择 转换该文件夹下的外部图片，插件会帮你自动遍历所有子文件夹，喝口水的功夫，几百张图片就全进仓库了。
+### v1.1.1
+- 批量操作时向 `document.body` 添加 `suppress-notices` CSS 类，通过 `styles.css` 隐藏系统通知弹窗
+- 全库和文件夹批量操作在状态栏显示实时进度
 
-修复聊天记录：右键点击笔记或文件夹，选择 修复聊天记录排版，即可瞬间将凌乱的聊天记录转换为整齐的带缩进格式。
+### v1.1.0
+- 批量操作通知屏蔽（CSS 方案）
+- 状态栏实时进度文字
+- 乱码检测改进：纯数字+点号文件名被识别为自动生成
 
-2. 快捷键 & 命令面板
+### v1.0.9
+- Wikilink 正则改用非贪婪匹配，处理文件名中嵌套 `]` 的情况
+- 三层乱码检测：特殊字符、URL 编码残留、自动生成模式
+- `resolveImageLink()` 统一文件解析，原生 API 失败时回退为全局查找
 
-打开一篇正在编辑的笔记，按下 Ctrl/Cmd + P 呼出命令面板，搜索 转换当前笔记中的外部图片 即可执行。你可以为它绑定一个顺手的快捷键。
+### v1.0.8
+- 全库 basename 去重，预构建 `Map<basename, vaultPath>` 映射表
+- 强制重命名模式：对已符合预设格式的图片也重新命名
+- 操作互斥锁，防止并发操作冲突
 
-3. 全局暴力兜底
+### v1.0.6
+- 链接格式设置：重命名后可选完整路径或仅文件名
+- 已符合预设命名的图片自动跳过
+- 批量进度从频繁弹窗改为状态栏显示
 
-命令面板搜索 转换整个仓库中的外部图片。如果你刚把整个 Typora 的工作区迁移过来，按这个就对了。
+### v1.0.5
+- 自定义图片命名预设，支持 `{YYYY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}` 占位符
+- 右键菜单支持单文件 / 文件夹 / 全库级别的图片重命名
+- 全部重命名完成后统一修正链接格式
 
-📸 效果演示
+### v1.0.4
+- QQ/微信聊天记录排版修复
+- 支持 WebP 和 HEIC 格式
 
-转换前 (脆弱且无法渲染的外部链接):
+### v1.0.3
+- 转换后保留图片尺寸语法（`![|350]`）
+- 强化路径解析引擎，处理特殊字符和 URL 编码路径
 
-这里是一段笔记内容。
-![|350](file:///D:\QQ_Data\Tencent%20Files\Image\58`7R\(F{BB37HFZ7$@FL%_H.png)
+### v1.0.2
+- 遵循 Obsidian 系统附件文件夹设置
+- 自动创建嵌套附件目录
 
+### v1.0.1
+- 库内乱码图片检测与重命名
+- 通过 `fileManager.renameFile` API 自动更新全库引用
 
-转换后 (干净的 Obsidian 原生双链，缩放参数依然保留):
+### v1.0.0
+- 首次发布：外部绝对路径图片转入仓库
 
-这里是一段笔记内容。
-![[Pasted image 20260420123045.png|350]]
+## 安装
 
-
-📦 安装说明
-
-手动安装
-
-从本仓库的 Releases 页面下载最新版本的 main.js 和 manifest.json。
-
-在你的 Obsidian 仓库中，进入 .obsidian/plugins/ 目录。
-
-新建一个名为 obsidian-absolute-image-transfer 的文件夹，把上面两个文件扔进去。
-
-重启 Obsidian，在设置 -> 第三方插件中关闭安全模式，并启用本插件。
-
-⚠️ 极其重要的警告：严禁使用 Ctrl + Z 撤销！
-
-由于本插件不仅仅是修改文本，它还会对你硬盘上的物理文件进行移动和重命名。
-如果你在执行了“乱码图片重命名”后，习惯性地在笔记里按了 Ctrl + Z 试图撤销：
-
-Obsidian 的编辑器会乖乖把文本变回那个 ![[乱码名字.png]]。
-
-但是，硬盘上的文件名字早就变成 Pasted image... 了，不会跟着变回去！
-
-这会导致你的笔记试图读取一个已经不存在的旧名字，图片直接显示破损 (File not found)。
-
-建议：在对包含大量笔记的文件夹执行批量操作前，建议先用 Git 或云盘备份一下仓库。操作完就让它过去，千万别撤销。
-
-📄 更新日志
-
-🎉 v1.1.0：批量操作体验大提升
-
-新增：批量重命名时自动屏蔽 Obsidian 系统通知轰炸。所有批量操作（全库/文件夹重命名、乱码扫描）执行期间，"已修改 N 条链接" 的弹窗不再刷屏，仅显示最终结果。
-
-新增：右下角状态栏实时进度文字。批量操作时显示如「📷 图片重命名: 33/100」「🔍 乱码图片扫描: 12/50」，完成后显示「✅ 重命名完成」持续 5 秒后自动消失。
-
-新增：右键菜单「强制重命名当前文件/文件夹内所有图片」入口，单文件层面也支持强制模式，无需全局操作。
-
-修复：`resolveImageLink` 文件解析回退逻辑移除特殊字符守卫，纯数字+点号等非标准命名（如 `1.1.1.jpg`）在原生 API 解析失败时也能通过全局查找正确匹配。
-
-🎉 v1.0.9：乱码识别与链接解析全面加固
-
-修复：Wikilink 正则引擎重写。`[^|\]]+` → `[^|]+?`（非贪婪匹配），彻底解决文件名内嵌 `]` 字符导致链接识别失败的问题（如 `![[[]()(( 1.jpg]]`）。
-
-修复：乱码检测升级为三层判定体系。① 特殊字符检测 ② `decodeURIComponent` URL 编码残留检测 ③ 文件名主干自动生成模式识别（纯数字+点号+空格+连字符+下划线，不含任何字母 → 判定为编码残留/自动命名）。全面覆盖 `1.1.1.jpg`、`1.2.3. 4.jpg` 等非标准命名。
-
-新增：`resolveImageLink()` 共享文件解析器。先走 Obsidian 原生 `getFirstLinkpathDest`（支持相对路径），失败时全局回退为 `app.vault.getFiles()` 按名查找。所有 6 处文件解析调用点统一替换，确保含 `[](){}` 等正则特殊字符的文件名能被正确定位。
-
-🎉 v1.0.8：全库去重与强制重命名
-
-修复：重大同名冲突修复。全面重构冲突检测机制，将 `reservedBasenames` 从 `Set` 升级为 `Map<basename, vaultPath>`，精确区分"同一文件被多条笔记引用"和"不同文件路径冲突"两种场景。
-
-修复：用 `app.vault.getFiles()` 全量扫描替代 `getFirstLinkpathDest` 元数据缓存查询，确保跨文件夹的孤立图片也能被正确检测，彻底杜绝"不同文件夹同名图片"的漏检问题。
-
-新增："强制重命名"指令。命令面板新增「强制重命名整个仓库中的所有图片（包括已符合格式的图片）」，右键菜单同步新增单文件/文件夹强制重命名入口。强制模式下跳过 `matchesNamePreset` 检查，对所有图片全部重新生成唯一名称。
-
-新增：全操作互斥锁 `isRenaming`。所有 9 个操作入口（命令面板 + 右键菜单）统一加锁，finally 块保证释放，防止并发操作引发时间戳碰撞。
-
-加强：`generateUniqueTargetPath` 循环增加 100,000 次安全上限，防止极端情况下死循环。
-
-🎉 v1.0.6：链接格式控制与批量优化
-
-新增：设置项「重命名后链接格式」，提供"完整路径"与"仅文件名"两种模式。重命名图片后自动统一修正全库链接格式，即使图片名已符合预设也会检查并修正链接。
-
-新增：已符合预设命名格式的图片自动跳过，避免无效的重复重命名操作。
-
-优化：批量重命名时，右上角频繁弹出的进度通知改为右下角状态栏显示（格式：当前序号/总数），完成后显示 ✓ 并 3 秒后自动消失。出错时自动清除状态栏，仅弹出单条错误提示。
-
-优化：链接格式修正改为一次性批量扫描，所有重命名完成后统一处理全库图片链接，避免逐文件重复扫描。
-
-🎉 v1.0.5：自定义命名与全量转换
-
-新增：自定义图片命名预设。支持 {YYYY} {MM} {DD} {HH} {mm} {ss} 时间戳占位符，用户可在设置中自由定义转换后图片的文件名格式（如 `Pasted image {YYYY}{MM}{DD}{HH}{mm}{ss}`）。
-
-新增：右键菜单「全量图片重命名」功能。支持单文件、文件夹及整个仓库三个层级，将库内所有图片统一重命名为预设格式。通过 Obsidian 原生 `app.fileManager.renameFile` API 执行，自动同步更新全库所有 Markdown 引用链接，确保不产生断链。
-
-🎉 v1.0.4：QQ/微信排版救星
-
-新增：智能聊天记录修复引擎。支持自动补全缺失的年份（如 QQ 消息），并将单数字月份/日期（5/6）统一强制补零对齐（05/06），确保 YYYY/MM/DD HH:mm:ss 格式美观统一。
-
-优化：强制执行 [用户名: 时间] \n \t [内容] 排版逻辑，并完美保留原始笔记中的空行间距，绝不乱删空行。
-
-🎉 v1.0.3：尺寸保留与硬核解构引擎
-
-新增：支持识别并保留 Markdown 图片大小语法（如 ![|350] 或双链 |425），转换后图片大小不走样。
-
-加强：重写了底层路径解析引擎，采用“双轨探测”。彻底攻克形如 C]\GU 的奇葩目录以及包含 %01 字面量的极端乱码路径，容错率拉满。
-
-🎉 v1.0.2：原生附件存储体系深度融合
-
-告别硬编码的 Attachments 文件夹！全面接管并 100% 遵守 Obsidian 官方的附件存放设置，图片该去哪就去哪。支持自动递归建立不存在的多层目录。
-
-🎉 v1.0.1：库内乱码图片一键清洗
-
-针对已经导入库内但名字极其诡异的双链图片（带斜杠、括号、乱码），提供了一键清理重命名功能，并调用系统 API 实现全库引用无感自动更新。
-
-📄 许可证
-
-本项目基于 MIT License 开源。
+1. 从 [Releases](https://github.com/Kflho/obsidian-absolute-image-transfer/releases) 下载 `main.js`、`manifest.json`、`styles.css`
+2. 放入 `.obsidian/plugins/obsidian-absolute-image-transfer/`
+3. 在设置 → 第三方插件中启用
