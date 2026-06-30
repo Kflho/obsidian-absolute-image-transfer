@@ -23,6 +23,9 @@ export class ImageTransferSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+	// display() is the standard PluginSettingTab lifecycle method.
+	// getSettingDefinitions() (since Obsidian 1.13.0) does not support
+	// dynamic conditional UI needed for the attachment folder input.
 	display(): void {
 		const { containerEl } = this;
 

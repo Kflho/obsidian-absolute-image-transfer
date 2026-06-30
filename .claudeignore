@@ -1,0 +1,27 @@
+# Dependencies (large, never needed for context)
+node_modules/
+
+# Lock files (verbose, auto-generated)
+package-lock.json
+yarn.lock
+
+# Bundled / minified output (unreadable, bloats context)
+main.js
+*.min.js
+*.bundle.js
+*.map
+
+# Build artifacts
+dist/
+build/
+
+# IDE / editor
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+
+# Obsidian runtime data
+data.json
