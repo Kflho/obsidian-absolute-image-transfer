@@ -80,7 +80,7 @@ Uses Node.js `fs/promises` and `path` for filesystem access. `isDesktopOnly: tru
 
 ## 提交分支到 GitHub 时的自动化流程
 
-当用户要求提交分支到 GitHub 时（例如 "提交到github"、"push到github"、"推送到远程"等），必须自动执行以下步骤：
+当用户**明确要求**提交分支到 GitHub 时（例如 "提交到github"、"push到github"、"推送到远程"等），才执行以下步骤。**严禁在用户未明确要求时自动提交或推送。**
 
 1. **从分支名提取版本号**：当前分支名通常包含版本号，如 `1.1.1` 或 `1.1.1更新`。从分支名中提取语义版本号（如 `1.1.1`）。
 
@@ -89,7 +89,7 @@ Uses Node.js `fs/promises` and `path` for filesystem access. `isDesktopOnly: tru
    - `package.json` → 更新 `"version"` 字段
    - `versions.json` → 在末尾添加新版本条目 `"x.y.z": "1.0.0"`（如果尚不存在）
 
-3. **构建并提交**：
+3. **构建并提交**（仅在用户明确要求提交时执行）：
    ```bash
    npm run build    # 类型检查 + 打包
    git add -A

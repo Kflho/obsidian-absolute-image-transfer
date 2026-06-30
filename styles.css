@@ -1,4 +1,7 @@
 /* Absolute Image Transfer — notice suppression during batch operations */
-.suppress-notices .notice-container {
-    display: none !important;
+body.suppress-notices .notice-container,
+body.suppress-notices > .notice-container,
+body.suppress-notices div.notice {
+	display: none !important;
+	visibility: hidden !important;
 }
