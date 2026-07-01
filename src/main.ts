@@ -8,6 +8,7 @@ export default class ImageTransferPlugin extends Plugin {
     private statusBarItemEl: HTMLElement | null = null;
     private noticeObserver: MutationObserver | null = null;
     private suppressedElements: Set<HTMLElement> = new Set();
+    private restoreTimer: number | null = null;
     private isRenaming = false;
 
     async onload() {
@@ -31,26 +32,27 @@ export default class ImageTransferPlugin extends Plugin {
                 }
                 this.isRenaming = true;
                 this.suppressNotices();
+                let finalMsg = '';
                 try {
                     if (!ctx.file) {
-                        new Notice('⚠️ 无法获取当前文件，请确保您打开了一篇笔记！');
+                        finalMsg = '⚠️ 无法获取当前文件，请确保您打开了一篇笔记！';
                         return;
                     }
                     this.showProgress(0, 1, '📷 外部图片转换');
                     const updated = await this.processNote(ctx.file);
                     if (updated) {
                         this.finishProgress('✅ 转换完成');
-                        new Notice('✅ 当前笔记外部图片转换完成！');
+                        finalMsg = '✅ 当前笔记外部图片转换完成！';
                     } else {
                         this.clearProgress();
-                        new Notice('没有发现需要转换的外部本地图片。');
+                        finalMsg = '没有发现需要转换的外部本地图片。';
                     }
                 } catch (e) {
                     this.clearProgress();
                     console.error(e);
-                    new Notice('❌ 处理过程中发生意外错误，请检查控制台。');
+                    finalMsg = '❌ 处理过程中发生意外错误，请检查控制台。';
                 } finally {
-                    this.restoreNotices();
+                    this.restoreNotices(finalMsg);
                     this.isRenaming = false;
                 }
             }
@@ -66,6 +68,7 @@ export default class ImageTransferPlugin extends Plugin {
                 }
                 this.isRenaming = true;
                 this.suppressNotices();
+                let finalMsg = '';
                 try {
                     const files = this.app.vault.getMarkdownFiles();
                     let processedCount = 0;
@@ -81,13 +84,13 @@ export default class ImageTransferPlugin extends Plugin {
                         this.showProgress(i + 1, files.length, '📷 外部图片转换');
                     }
                     this.finishProgress('✅ 转换完成');
-                    new Notice(`🎉 全局处理完毕！共更新了 ${processedCount} 篇笔记。`);
+                    finalMsg = `🎉 全局处理完毕！共更新了 ${processedCount} 篇笔记。`;
                 } catch (e) {
                     this.clearProgress();
                     console.error(e);
-                    new Notice('❌ 全局处理中断，请检查控制台。');
+                    finalMsg = '❌ 全局处理中断，请检查控制台。';
                 } finally {
-                    this.restoreNotices();
+                    this.restoreNotices(finalMsg);
                     this.isRenaming = false;
                 }
             }
@@ -116,6 +119,7 @@ export default class ImageTransferPlugin extends Plugin {
                         }
                         this.isRenaming = true;
                         this.suppressNotices();
+                        let finalMsg = '';
                         try {
                             let renamedCount = 0;
                             const reservedPaths = new Map<string, string>();
@@ -129,13 +133,13 @@ export default class ImageTransferPlugin extends Plugin {
                             }
                             await this.fixAllImageLinkFormats();
                             this.finishProgress('✅ 重命名完成');
-                            new Notice(`🎉 全局处理完毕！共重命名了 ${renamedCount} 张图片。`);
+                            finalMsg = `🎉 全局处理完毕！共重命名了 ${renamedCount} 张图片。`;
                         } catch (e) {
                             this.clearProgress();
                             console.error(e);
-                            new Notice('❌ 重命名中断，请检查控制台。');
+                            finalMsg = '❌ 重命名中断，请检查控制台。';
                         } finally {
-                            this.restoreNotices();
+                            this.restoreNotices(finalMsg);
                             this.isRenaming = false;
                         }
                     }).open();
@@ -170,6 +174,7 @@ export default class ImageTransferPlugin extends Plugin {
                         }
                         this.isRenaming = true;
                         this.suppressNotices();
+                        let finalMsg = '';
                         try {
                             let renamedCount = 0;
                             const reservedPaths = new Map<string, string>();
@@ -183,13 +188,13 @@ export default class ImageTransferPlugin extends Plugin {
                             }
                             await this.fixAllImageLinkFormats();
                             this.finishProgress('✅ 重命名完成');
-                            new Notice(`🎉 全局处理完毕！共重命名了 ${renamedCount} 张图片。`);
+                            finalMsg = `🎉 全局处理完毕！共重命名了 ${renamedCount} 张图片。`;
                         } catch (e) {
                             this.clearProgress();
                             console.error(e);
-                            new Notice('❌ 重命名中断，请检查控制台。');
+                            finalMsg = '❌ 重命名中断，请检查控制台。';
                         } finally {
-                            this.restoreNotices();
+                            this.restoreNotices(finalMsg);
                             this.isRenaming = false;
                         }
                     }).open();
@@ -219,22 +224,23 @@ export default class ImageTransferPlugin extends Plugin {
                                 }
                                 this.isRenaming = true;
                                 this.suppressNotices();
+                                let finalMsg = '';
                                 try {
                                     this.showProgress(0, 1, '📷 外部图片转换');
                                     const updated = await this.processNote(file);
                                     if (updated) {
                                         this.finishProgress('✅ 转换完成');
-                                        new Notice(`✅ ${file.name} 外部图片转换完成！`);
+                                        finalMsg = `✅ ${file.name} 外部图片转换完成！`;
                                     } else {
                                         this.clearProgress();
-                                        new Notice(`ℹ️ 该笔记中没有需要转换的外部图片。`);
+                                        finalMsg = `ℹ️ 该笔记中没有需要转换的外部图片。`;
                                     }
                                 } catch (e) {
                                     this.clearProgress();
                                     console.error(e);
-                                    new Notice('❌ 处理中断，请检查控制台。');
+                                    finalMsg = '❌ 处理中断，请检查控制台。';
                                 } finally {
-                                    this.restoreNotices();
+                                    this.restoreNotices(finalMsg);
                                     this.isRenaming = false;
                                 }
                             });
@@ -252,6 +258,7 @@ export default class ImageTransferPlugin extends Plugin {
                                 }
                                 this.isRenaming = true;
                                 this.suppressNotices();
+                                let finalMsg = '';
                                 try {
                                     const imgCount = await this.countAllImagesForce(file);
                                     this.showProgress(0, imgCount || 1, '🔍 乱码图片扫描');
@@ -262,17 +269,17 @@ export default class ImageTransferPlugin extends Plugin {
                                     if (count > 0) {
                                         await this.fixAllImageLinkFormats();
                                         this.finishProgress('✅ 扫描完成');
-                                        new Notice(`✅ 成功重命名 ${count} 张乱码图片！`);
+                                        finalMsg = `✅ 成功重命名 ${count} 张乱码图片！`;
                                     } else {
                                         this.clearProgress();
-                                        new Notice(`ℹ️ 未发现乱码图片。`);
+                                        finalMsg = `ℹ️ 未发现乱码图片。`;
                                     }
                                 } catch (e) {
                                     this.clearProgress();
                                     console.error(e);
-                                    new Notice('❌ 重命名中断，请检查控制台。');
+                                    finalMsg = '❌ 重命名中断，请检查控制台。';
                                 } finally {
-                                    this.restoreNotices();
+                                    this.restoreNotices(finalMsg);
                                     this.isRenaming = false;
                                 }
                             });
@@ -313,6 +320,7 @@ export default class ImageTransferPlugin extends Plugin {
                                         }
                                         this.isRenaming = true;
                                         this.suppressNotices();
+                                        let finalMsg = '';
                                         try {
                                             this.showProgress(0, count, '📷 图片重命名');
                                             const renamed = await this.renameAllImages(
@@ -321,13 +329,13 @@ export default class ImageTransferPlugin extends Plugin {
                                             );
                                             await this.fixAllImageLinkFormats();
                                             this.finishProgress('✅ 重命名完成');
-                                            new Notice(`✅ ${file.name} 成功重命名 ${renamed} 张图片！`);
+                                            finalMsg = `✅ ${file.name} 成功重命名 ${renamed} 张图片！`;
                                         } catch (e) {
                                             this.clearProgress();
                                             console.error(e);
-                                            new Notice('❌ 重命名中断，请检查控制台。');
+                                            finalMsg = '❌ 重命名中断，请检查控制台。';
                                         } finally {
-                                            this.restoreNotices();
+                                            this.restoreNotices(finalMsg);
                                             this.isRenaming = false;
                                         }
                                     }).open();
@@ -358,6 +366,7 @@ export default class ImageTransferPlugin extends Plugin {
                                         }
                                         this.isRenaming = true;
                                         this.suppressNotices();
+                                        let finalMsg = '';
                                         try {
                                             this.showProgress(0, count, '📷 图片重命名（强制）');
                                             const renamed = await this.renameAllImages(
@@ -366,13 +375,13 @@ export default class ImageTransferPlugin extends Plugin {
                                             );
                                             await this.fixAllImageLinkFormats();
                                             this.finishProgress('✅ 重命名完成');
-                                            new Notice(`✅ ${file.name} 成功重命名 ${renamed} 张图片！`);
+                                            finalMsg = `✅ ${file.name} 成功重命名 ${renamed} 张图片！`;
                                         } catch (e) {
                                             this.clearProgress();
                                             console.error(e);
-                                            new Notice('❌ 重命名中断，请检查控制台。');
+                                            finalMsg = '❌ 重命名中断，请检查控制台。';
                                         } finally {
-                                            this.restoreNotices();
+                                            this.restoreNotices(finalMsg);
                                             this.isRenaming = false;
                                         }
                                     }).open();
@@ -396,6 +405,7 @@ export default class ImageTransferPlugin extends Plugin {
                                 }
                                 this.isRenaming = true;
                                 this.suppressNotices();
+                                let finalMsg = '';
                                 try {
                                     const files = this.app.vault.getMarkdownFiles();
                                     let processedCount = 0;
@@ -413,9 +423,9 @@ export default class ImageTransferPlugin extends Plugin {
                                         this.showProgress(i + 1, folderFiles.length, '📷 外部图片转换');
                                     }
                                     this.finishProgress('✅ 转换完成');
-                                    new Notice(`🎉 文件夹 ${file.name} 外部图片处理完毕！共更新了 ${processedCount} 篇笔记。`);
+                                    finalMsg = `🎉 文件夹 ${file.name} 外部图片处理完毕！共更新了 ${processedCount} 篇笔记。`;
                                 } finally {
-                                    this.restoreNotices();
+                                    this.restoreNotices(finalMsg);
                                     this.isRenaming = false;
                                 }
                             });
@@ -433,6 +443,7 @@ export default class ImageTransferPlugin extends Plugin {
                                 }
                                 this.isRenaming = true;
                                 this.suppressNotices();
+                                let finalMsg = '';
                                 try {
                                     const allFiles = this.app.vault.getMarkdownFiles();
                                     const folderPrefix = file.path === '/' ? '' : file.path + '/';
@@ -452,13 +463,13 @@ export default class ImageTransferPlugin extends Plugin {
                                         await this.fixAllImageLinkFormats();
                                     }
                                     this.finishProgress('✅ 扫描完成');
-                                    new Notice(`🎉 扫描完毕！共重命名了 ${totalRenamed} 张乱码图片。`);
+                                    finalMsg = `🎉 扫描完毕！共重命名了 ${totalRenamed} 张乱码图片。`;
                                 } catch (e) {
                                     this.clearProgress();
                                     console.error(e);
-                                    new Notice('❌ 处理中断，请检查控制台。');
+                                    finalMsg = '❌ 处理中断，请检查控制台。';
                                 } finally {
-                                    this.restoreNotices();
+                                    this.restoreNotices(finalMsg);
                                     this.isRenaming = false;
                                 }
                             });
@@ -512,6 +523,7 @@ export default class ImageTransferPlugin extends Plugin {
                                         }
                                         this.isRenaming = true;
                                         this.suppressNotices();
+                                        let finalMsg = '';
                                         try {
                                             let totalRenamed = 0;
                                             const reservedPaths = new Map<string, string>();
@@ -525,13 +537,13 @@ export default class ImageTransferPlugin extends Plugin {
                                             }
                                             await this.fixAllImageLinkFormats();
                                             this.finishProgress('✅ 重命名完成');
-                                            new Notice(`🎉 文件夹 ${file.name} 处理完毕！共重命名了 ${totalRenamed} 张图片。`);
+                                            finalMsg = `🎉 文件夹 ${file.name} 处理完毕！共重命名了 ${totalRenamed} 张图片。`;
                                         } catch (e) {
                                             this.clearProgress();
                                             console.error(e);
-                                            new Notice('❌ 重命名中断，请检查控制台。');
+                                            finalMsg = '❌ 重命名中断，请检查控制台。';
                                         } finally {
-                                            this.restoreNotices();
+                                            this.restoreNotices(finalMsg);
                                             this.isRenaming = false;
                                         }
                                     }).open();
@@ -570,6 +582,7 @@ export default class ImageTransferPlugin extends Plugin {
                                         }
                                         this.isRenaming = true;
                                         this.suppressNotices();
+                                        let finalMsg = '';
                                         try {
                                             let totalRenamed = 0;
                                             const reservedPaths = new Map<string, string>();
@@ -583,13 +596,13 @@ export default class ImageTransferPlugin extends Plugin {
                                             }
                                             await this.fixAllImageLinkFormats();
                                             this.finishProgress('✅ 重命名完成');
-                                            new Notice(`🎉 文件夹 ${file.name} 处理完毕！共重命名了 ${totalRenamed} 张图片。`);
+                                            finalMsg = `🎉 文件夹 ${file.name} 处理完毕！共重命名了 ${totalRenamed} 张图片。`;
                                         } catch (e) {
                                             this.clearProgress();
                                             console.error(e);
-                                            new Notice('❌ 重命名中断，请检查控制台。');
+                                            finalMsg = '❌ 重命名中断，请检查控制台。';
                                         } finally {
-                                            this.restoreNotices();
+                                            this.restoreNotices(finalMsg);
                                             this.isRenaming = false;
                                         }
                                     }).open();
@@ -658,6 +671,11 @@ export default class ImageTransferPlugin extends Plugin {
      * 2. MutationObserver 兜底 — 捕获 CSS 遗漏的元素
      */
     private suppressNotices() {
+        // 取消上一次尚未触发的恢复定时器，避免前后两次操作竞态
+        if (this.restoreTimer !== null) {
+            clearTimeout(this.restoreTimer);
+            this.restoreTimer = null;
+        }
         const hadClass = document.body.classList.contains('suppress-notices');
         document.body.classList.add('suppress-notices');
         console.debug('[ImageTransfer] suppressNotices called, body had class:', hadClass);
@@ -690,26 +708,36 @@ export default class ImageTransferPlugin extends Plugin {
     }
 
     /**
-     * 恢复通知弹窗显示
+     * 恢复通知弹窗显示。
+     * 延迟 5 秒等待被屏蔽的刷屏弹窗自然过期（Obsidian 默认 notice 时长），
+     * 然后解除屏蔽，最后弹出操作结果通知。
+     * @param finalMessage 操作结果消息，解除屏蔽后显示；空字符串则不显示
      */
-    private restoreNotices() {
-        document.body.classList.remove('suppress-notices');
-        if (this.noticeObserver) {
-            this.noticeObserver.disconnect();
-            console.debug('[ImageTransfer] MutationObserver disconnected');
-        }
-        // 恢复所有被 MutationObserver 隐藏的元素的内联样式
-        // 否则如果 Observer 捕获到了 .notice-container 等持久容器，
-        // 其内联 display:none 会永久生效，导致其他插件（如 Image Converter）的弹窗也消失
-        for (const el of this.suppressedElements) {
-            el.setCssProps({
-                display: '',
-                visibility: '',
-                opacity: '',
-                'pointer-events': '',
-            });
-        }
-        this.suppressedElements.clear();
+    private restoreNotices(finalMessage?: string) {
+        this.restoreTimer = window.setTimeout(() => {
+            this.restoreTimer = null;
+            document.body.classList.remove('suppress-notices');
+            if (this.noticeObserver) {
+                this.noticeObserver.disconnect();
+                console.debug('[ImageTransfer] MutationObserver disconnected');
+            }
+            // 恢复所有被 MutationObserver 隐藏的元素的内联样式
+            // 否则如果 Observer 捕获到了 .notice-container 等持久容器，
+            // 其内联 display:none 会永久生效，导致其他插件（如 Image Converter）的弹窗也消失
+            for (const el of this.suppressedElements) {
+                el.setCssProps({
+                    display: '',
+                    visibility: '',
+                    opacity: '',
+                    'pointer-events': '',
+                });
+            }
+            this.suppressedElements.clear();
+
+            if (finalMessage) {
+                new Notice(finalMessage);
+            }
+        }, 5000);
     }
 
     /**
