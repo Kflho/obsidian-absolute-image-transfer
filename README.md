@@ -75,6 +75,10 @@ Back up your vault before bulk operations.
 
 ## Changelog
 
+### v1.1.4
+- Fixed `restoreNotices()` not clearing inline styles set by MutationObserver, which could permanently hide notice containers and break other plugins' popups (e.g. Image Converter)
+- Track all suppressed elements in a `Set<HTMLElement>` and reset their CSS properties on restore
+
 ### v1.1.2
 - Progress indicator uses the built-in status bar (not a floating overlay), updating per-image during single-file operations
 - Notice suppression now covers all operation types, including single-file right-click actions
@@ -175,6 +179,10 @@ MIT
 批量操作前建议备份仓库。
 
 ## 更新日志
+
+### v1.1.4
+- 修复 `restoreNotices()` 未清除 MutationObserver 设置的内联样式，导致 notice 容器被永久隐藏，进而影响其他插件弹窗（如 Image Converter）的问题
+- 新增 `Set<HTMLElement>` 追踪所有被隐藏的元素，恢复时重置其 CSS 属性
 
 ### v1.1.2
 - 进度指示改用 Obsidian 自带状态栏显示，单文件操作时按图片数量逐张更新进度

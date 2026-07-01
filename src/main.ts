@@ -7,6 +7,7 @@ export default class ImageTransferPlugin extends Plugin {
     settings!: ImageTransferSettings;
     private statusBarItemEl: HTMLElement | null = null;
     private noticeObserver: MutationObserver | null = null;
+    private suppressedElements: Set<HTMLElement> = new Set();
     private isRenaming = false;
 
     async onload() {
@@ -605,7 +606,7 @@ export default class ImageTransferPlugin extends Plugin {
 
         this.addSettingTab(new ImageTransferSettingTab(this.app, this));
 
-        new Notice("Image transfer v1.1.2 reloaded");
+        new Notice("Image transfer v1.1.4 reloaded");
     }
 
     async loadSettings() {
@@ -677,6 +678,7 @@ export default class ImageTransferPlugin extends Plugin {
                                     opacity: '0',
                                     'pointer-events': 'none',
                                 });
+                                this.suppressedElements.add(node);
                             }
                         }
                     }
@@ -696,6 +698,18 @@ export default class ImageTransferPlugin extends Plugin {
             this.noticeObserver.disconnect();
             console.debug('[ImageTransfer] MutationObserver disconnected');
         }
+        // 恢复所有被 MutationObserver 隐藏的元素的内联样式
+        // 否则如果 Observer 捕获到了 .notice-container 等持久容器，
+        // 其内联 display:none 会永久生效，导致其他插件（如 Image Converter）的弹窗也消失
+        for (const el of this.suppressedElements) {
+            el.setCssProps({
+                display: '',
+                visibility: '',
+                opacity: '',
+                'pointer-events': '',
+            });
+        }
+        this.suppressedElements.clear();
     }
 
     /**
