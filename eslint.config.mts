@@ -23,6 +23,18 @@ export default tseslint.config(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		// 测试代码运行在 Node 环境，且需要用 console 输出测试结果
+		files: ['test/**/*.ts'],
+		languageOptions: {
+			globals: {
+				...globals.node,
+			},
+		},
+		rules: {
+			'no-console': 'off',
+		},
+	},
 	globalIgnores([
 		"node_modules",
 		"dist",
@@ -31,5 +43,6 @@ export default tseslint.config(
 		"version-bump.mjs",
 		"versions.json",
 		"main.js",
+		"test/.build",
 	]),
 );
