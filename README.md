@@ -43,19 +43,88 @@ Reformats exported chat logs from messy single-line timestamps into clean, inden
 
 Idempotent — running it multiple times on the same text won't produce duplicate newlines or extra whitespace.
 
+The layout is configurable (see **Settings** below):
+
+- Toggle each piece of header info independently — username, date, time
+- Choose the body indent — tab, 2 spaces, 4 spaces, or none
+- When a message contains both an image and text, choose whether the image goes above or below the text (or keep the original order)
+
+### 4. Set image size in one click
+
+Replaces the usual find-and-replace chore with a command. Pick an image size once, then apply it to a note, a folder, or the whole vault.
+
+**Example — before → after:**
+
+```
+![[photo.png]]              →  ![[photo.png|100]]
+![[photo.png|300]]          →  ![[photo.png|100]]
+![[photo.png|300x200]]      →  ![[photo.png|100]]
+![[photo.png#outline]]      →  ![[photo.png#outline|100]]
+![](https://x.com/a.jpg)    →  ![100](https://x.com/a.jpg)
+![[photo.png|a caption]]    →  unchanged (alias is a caption, not a size)
+![[notes.md]]               →  unchanged (not an image)
+```
+
+Why it is safer than a regex replace:
+
+- **Only writes files that actually change.** Sizes that already match are left alone — no save, sync or diff noise from re-running it.
+- **Case-insensitive extensions** and full format coverage (`png` `jpg` `jpeg` `gif` `bmp` `webp` `heic` `avif` `svg`).
+- **Handles `|300x200`**, `#outline` fragments and Markdown images, which a simple `(\|\d+)?` pattern silently skips.
+- **Never eats captions.** When the alias holds text instead of a number, the link is left untouched.
+- **Preview before applying.** The dialog shows how many links will change and the first few before → after examples, updating live as you type.
+- Leave both width and height empty to **remove** existing sizes.
+
+### 5. Organize image locations
+
+After you copy-paste a note, its short links such as `![[photo.png]]` still point at the image in the **original** folder — the note's own attachments folder has no such file. Move, rename or delete that original image and the note loses its pictures.
+
+**Organize image locations** copies those images into the note's own attachment folder and repoints the links:
+
+| Situation | What happens |
+|-----------|--------------|
+| Image lives elsewhere, nothing local | A copy is placed in the attachment folder, link repointed |
+| An **identical** copy is already there | Link is repointed only — nothing duplicated |
+| A **different** file with the same name is there | The copy is named `name 2.ext`; nothing is overwritten |
+| The link is ambiguous (several files share the name) | Skipped, and the reason is reported |
+| Image already sits in the right folder | Untouched |
+
+Image contents are compared byte-for-byte before deciding, so two different pictures are never treated as the same one. When a file name exists in several folders the plugin writes the full path (e.g. `![[folderB/attachments/photo.png]]`) instead of a bare file name, so the link can never resolve to the wrong picture.
+
+Available from the right-click **图片功能 → 整理…图片位置** submenu, and from the command palette (current note / entire vault).
+
 ## How to use
+
+The right-click menu is grouped into two submenus so it stays short: **图片功能** (image tools) and **文本排版** (text layout). Each opens on click at the cursor.
 
 | Method | Action |
 |--------|--------|
-| Right-click a `.md` file | Convert / rename / fix chat logs for that note |
-| Right-click a folder | Batch process all notes in that folder |
-| Command palette (`Ctrl+P`) | Convert images in current note or entire vault; rename all images vault-wide |
+| Right-click a `.md` file | **图片功能**: convert / rename / organize locations / set size · **文本排版**: fix chat log |
+| Right-click a folder | The same two submenus, applied to every note in that folder |
+| Command palette (`Ctrl+P`) | Convert images in current note or entire vault; rename all images vault-wide; organize image locations; set image size (current note / entire vault) |
 
 ### Settings
 
 - **Attachment location** — where transferred images are stored (system default, vault root, current folder, subfolder, or custom path)
 - **Image naming preset** — format for renamed images, supports `{YYYY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}`
 - **Link format after rename** — use full path (`folder/image.png`) or filename only (`image.png`)
+
+Image size:
+
+- **Default width** — pre-filled width in the size dialog, in pixels
+- **Default height** — optional; leave empty to scale proportionally
+- **Overwrite existing sizes** — when off, only images without a size are filled in
+
+Chat log formatting:
+
+- **Show username** — keep or drop the sender name
+- **Show date** / **Show time** — keep or drop the date (`{YYYY}/{MM}/{DD}`) and time (`{HH}:{mm}:{ss}`)
+- **Body indent** — tab, 2 spaces, 4 spaces, or none
+- **Image position in mixed messages** — image above the text, below the text, or keep the original order
+- **Blank line between messages** — only available when username, date and time are all turned off; inserts an empty line between adjacent messages so they stay visually distinct
+
+All defaults reproduce the previous layout exactly, so existing notes are not reformatted until you change a setting.
+
+Blank lines already present in the source text are always preserved.
 
 ## Supported formats
 
@@ -67,6 +136,28 @@ Idempotent — running it multiple times on the same text won't produce duplicat
 
 Back up your vault before bulk operations.
 
+## Development
+
+```bash
+npm install     # install dependencies
+npm run dev     # watch mode
+npm run build   # type-check + bundle main.js
+npm test        # test suite (no test framework needed)
+npm run lint    # eslint
+```
+
+Feature logic is split into focused modules so it can be tested without Obsidian:
+
+| Module | Responsibility |
+|--------|----------------|
+| `src/chat-log.ts` | chat log layout (username / date / time toggles, indent, image order, blank lines) |
+| `src/image-size.ts` | rewriting `\|100` / `\|100x200` sizes, caption-safe |
+| `src/image-links.ts` | link resolution, same-name ambiguity detection, link form choice |
+| `src/image-organizer.ts` | copying images into a note's own attachment folder and repointing links |
+| `src/attachment-folder.ts` | resolving / creating the attachment folder (shared by several features) |
+
+`npm test` runs expected-output checks, idempotency across every settings combination, blank-line and content-loss invariants, and the safety rules that keep captions, non-image links and same-name images untouched.
+
 ## Installation
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from [Releases](https://github.com/Kflho/obsidian-absolute-image-transfer/releases)
@@ -74,6 +165,26 @@ Back up your vault before bulk operations.
 3. Enable the plugin in Settings → Community Plugins
 
 ## Changelog
+
+### v1.1.6
+- New: **organize image locations** — finds images that a note references from *another* folder (the usual result of copy-pasting a note) and brings a copy into that note's own attachment folder, then repoints the link
+  - If the attachment folder already holds an identical copy, the link is just repointed — nothing is duplicated
+  - If a *different* file with the same name is there, the copy gets a ` 2` suffix instead of overwriting
+  - Image content is compared byte-for-byte before deciding, so different images are never treated as the same
+- Fixed: **wrong images after renaming / link rewriting.** When two images in different folders shared a file name, the fallback link resolver picked the first match and could rename the wrong file or repoint a link at the other image. It now only resolves when the target is unambiguous, otherwise it skips and says so
+- Fixed: the same image, referenced from several notes, was renamed once per note during a vault-wide run (the name kept changing). Each image is now handled once per batch
+- Fixed: with **Link format after rename** set to filename only, links were stripped to bare file names even when that name existed in several folders, creating ambiguous links that could display the wrong image. Ambiguous names now keep the full path
+- Fixed: `#outline`-style fragments were dropped from links when link formats were normalized
+- Fixed: Markdown image links at the end of a message body were split by the chat log sender matcher, which broke the link
+- Chat log layout is now configurable: username, date and time can each be toggled independently
+- Body indent can be set to tab, 2 spaces, 4 spaces or none
+- Image position in mixed image + text messages can be set to above, below, or keep original order
+- New option to insert a blank line between adjacent messages when all header info is hidden
+- Fixed blank lines growing without bound: a message followed by a blank line and an unparseable sender name added one extra newline on every run
+- Chat log layout no longer drops text when the username is hidden (the previous line's text could be consumed as a sender name)
+- Right-click menu reorganised into two submenus, **图片功能** and **文本排版**
+- New: set image size in one click — replaces the manual find-and-replace regex, with a dialog showing affected count and before → after preview
+- Formatting engines extracted into `src/chat-log.ts`, `src/image-size.ts`, `src/image-links.ts`, `src/image-organizer.ts` and `src/attachment-folder.ts` as testable units; `npm test` covers expected outputs, idempotency across every settings combination, and the same-name safety rules
 
 ### v1.1.4
 - Fixed `restoreNotices()` not clearing inline styles set by MutationObserver, which could permanently hide notice containers and break other plugins' popups (e.g. Image Converter)
@@ -162,17 +273,103 @@ MIT
 
 将导出的聊天文本从混乱的单行时间戳格式，转换为带缩进的清晰排版。严格幂等，重复执行不会产生多余空行。
 
+排版样式可在设置中调整：
+
+| 设置项 | 说明 |
+|--------|------|
+| 显示用户名 | 关闭后每条消息只保留日期与时间 |
+| 显示日期 | 格式为 `{YYYY}/{MM}/{DD}` |
+| 显示时间 | 格式为 `{HH}:{mm}:{ss}` |
+| 正文缩进 | 制表符 (tab) / 2 个空格 / 4 个空格 / 不缩进 |
+| 图文消息中图片的位置 | 图片在上方 / 图片在下方 / 保持原顺序 |
+| 消息之间插入空行 | 仅当用户名、日期、时间全部关闭时可用；用空行分隔相邻消息，便于区分说话人 |
+
+以上默认值与原版排版结果完全一致，升级后不改变已有笔记，只有主动修改设置才会生效。源文里本来就有的空行始终会被保留。
+
+> 说明：关闭「显示用户名」后头部只剩时间戳，此时聊天记录上方紧邻的其他文字会被原样保留、不参与排版，以免误删内容。
+
+### 4. 一键设置图片大小
+
+把"查找替换正则"换成一条命令：设置里定好尺寸，右键笔记 / 文件夹或命令面板一键应用。
+
+**改写效果：**
+
+```
+![[图片.png]]               →  ![[图片.png|100]]
+![[图片.png|300]]           →  ![[图片.png|100]]
+![[图片.png|300x200]]       →  ![[图片.png|100]]
+![[图片.png#outline]]       →  ![[图片.png#outline|100]]
+![](https://x.com/a.jpg)    →  ![100](https://x.com/a.jpg)
+![[图片.png|一张说明文字]]   →  不动（别名是说明文字，不是尺寸）
+![[笔记.md]]                →  不动（不是图片）
+```
+
+相比直接跑正则的好处：
+
+- **只写真正变化的文件**：尺寸已经正确的笔记完全不碰，不会产生保存、同步、diff 噪音
+- **扩展名不区分大小写**，覆盖 `png` `jpg` `jpeg` `gif` `bmp` `webp` `heic` `avif` `svg`
+- **支持 `|300x200`、`#outline` 片段和 Markdown 图片**（这些用 `(\|\d+)?` 正则会静默漏掉）
+- **不会吃掉图片说明文字**：别名不是纯数字时一律保留
+- **先预览再动手**：弹窗实时显示"将修改 N 处"和前后对比，改数字即时刷新
+- 宽度和高度**都留空 = 移除已有尺寸**
+
+### 5. 整理笔记图片位置
+
+复制粘贴笔记后，`![[图.png]]` 这类短链接仍然指向**原文件夹**的图片，本笔记的 attachments 里其实没有这张图 —— 原图一旦被移动、改名或删除，笔记里的图片就没了。
+
+「整理图片位置」会把这类图片**复制**一份到笔记自己的附件夹，并把链接改成指向本地副本：
+
+| 情况 | 处理 |
+|------|------|
+| 图片在别处，本地附件夹没有 | 复制一份到本地，链接改指本地 |
+| 本地已有**内容相同**的副本 | 只改链接，不重复复制 |
+| 本地有**同名但内容不同**的文件 | 复制成 `名字 2.ext`，绝不覆盖 |
+| 链接同名有歧义、无法确定指向哪张 | 跳过并在提示里说明原因 |
+| 图片本来就在本地附件夹 | 完全不动 |
+
+同名图片多的时候，插件会强制写完整路径（如 `![[folderB/attachments/图.png]]`），避免裸文件名指向另一张同名图。入口在右键 **图片功能 → 整理…图片位置**，命令面板也可用（当前笔记 / 整个仓库）。
+
 ## 使用方式
+
+右键菜单收进了两个二级栏，顶层不再一长串：**图片功能** 与 **文本排版**，点击后在光标处展开。
+（Obsidian 公开 API 没有原生子菜单，这里用公开 API 在点击位置弹出菜单实现同样效果。）
 
 | 方式 | 操作 |
 |------|------|
-| 右键 `.md` 文件 | 转换、重命名、修复聊天记录 |
-| 右键文件夹 | 批量处理文件夹下所有笔记 |
-| 命令面板 (`Ctrl+P`) | 转换当前笔记 / 全库转换 / 全库重命名 |
+| 右键 `.md` 文件 | **图片功能**：转换 / 重命名 / 整理位置 / 设置大小 · **文本排版**：修复聊天记录 |
+| 右键文件夹 | 同样两个二级栏，作用于该文件夹下所有笔记 |
+| 命令面板 (`Ctrl+P`) | 转换当前笔记 / 全库转换 / 全库重命名 / 整理图片位置 / 设置图片大小 |
+
+## 本地开发
+
+```bash
+npm install
+npm run build   # 类型检查 + 打包 main.js
+npm test        # 测试（无需任何测试框架）
+npm run lint
+```
+
+功能逻辑拆成独立模块，可脱离 Obsidian 测试：
+
+| 模块 | 职责 |
+|------|------|
+| `src/chat-log.ts` | 聊天记录排版（用户名/日期/时间开关、缩进、图文顺序、空行） |
+| `src/image-size.ts` | 改写 `\|100` / `\|100x200` 尺寸，保护图片说明文字 |
+| `src/image-links.ts` | 链接解析、同名歧义识别、链接形式决策 |
+| `src/image-organizer.ts` | 把图片复制进笔记自己的附件夹并改写链接 |
+| `src/attachment-folder.ts` | 附件文件夹解析与创建（多个功能共用） |
 
 ## 支持的图片格式
 
-`png` `jpg` `jpeg` `gif` `bmp` `webp` `heic`
+`png` `jpg` `jpeg` `gif` `bmp` `webp` `heic`（图片大小功能额外支持 `avif` `svg`）
+
+## 图片大小设置项
+
+| 设置项 | 说明 |
+|--------|------|
+| 默认宽度 | 弹窗打开时的默认宽度（像素），与高度都留空表示移除已有尺寸 |
+| 默认高度 | 可留空，此时按宽度等比例缩放 |
+| 覆盖已有尺寸 | 关闭后只给还没有尺寸的图片补上 |
 
 ## 注意事项
 
@@ -181,6 +378,26 @@ MIT
 批量操作前建议备份仓库。
 
 ## 更新日志
+
+### v1.1.6
+- 新增「**整理图片位置**」：找出引用了**别处**图片的链接（复制粘贴笔记后的典型情况），把图片复制一份到本笔记自己的附件夹并改写链接
+  - 附件夹里已有完全相同的副本 → 只改链接，不重复复制
+  - 附件夹里已有同名但内容不同的文件 → 复制成 `名字 2.ext`，绝不覆盖
+  - 判定前会按字节比对图片内容，不同的图绝不会被当成同一张
+- 修复：**重命名 / 改写链接后图片显示成别的图**。全库存在同名图片时，旧的兜底解析会取第一个匹配，可能改错文件、把链接指向另一张图。现在只有能唯一确定时才处理，否则跳过并说明原因
+- 修复：同一张图被多篇笔记引用时，全库批处理会对它反复重命名（文件名来回跳）。现在每张图每批只处理一次
+- 修复：「重命名后链接格式」选「仅文件名」时，即使文件名在全库不唯一也会被剥成裸文件名，制造出有歧义、可能显示错图的链接。现在同名时强制保留完整路径
+- 修复：统一链接格式时 `#outline` 这类片段会被抹掉
+- 修复：正文以 Markdown 图片链接结尾时，图片路径被聊天记录发言人匹配逻辑切断
+- 聊天记录排版可配置：用户名、日期、时间可分别开关
+- 正文缩进可选制表符 / 2 空格 / 4 空格 / 不缩进
+- 图文消息中图片可设为在上方、下方或保持原顺序
+- 头部信息全关时可选在消息之间插入空行
+- 修复空行无限累积（消息后跟空行 + 下一条发言人无法识别时，每次执行多一个换行）
+- 关闭用户名显示后不再丢失文字（上一行内容曾被误判成发言人丢弃）
+- 右键菜单收进「图片功能」「文本排版」两个二级栏
+- 新增「一键设置图片大小」，支持 `|100`、`|100x200`、留空移除，且不会吃掉图片说明文字
+- 排版引擎拆分为 `src/chat-log.ts`、`src/image-size.ts`、`src/image-links.ts`、`src/image-organizer.ts`、`src/attachment-folder.ts`，`npm test` 覆盖期望输出、全部设置组合的幂等性与同名安全规则
 
 ### v1.1.4
 - 修复 `restoreNotices()` 未清除 MutationObserver 设置的内联样式，导致 notice 容器被永久隐藏，进而影响其他插件弹窗（如 Image Converter）的问题
