@@ -127,6 +127,24 @@ function overlapsImageToken(ranges: Array<[number, number]>, start: number, end:
 }
 
 /**
+ * 返回"用户名之前的行首缩进"的起点。
+ *
+ * 头部行自身带的缩进（`" \t李四 2024/1/5 14:31:02"` 里 `"李四"` 前面那截）不属于
+ * 上一条消息的正文：用户名被抽出来重新拼头部后，这截空白如果不丢掉，就会以
+ * "只剩空格与 Tab 的一行"留在两条消息之间 —— 也就是 `" \t"` 这类脏缩进的来源之一，
+ * 每排一次版就多留一行。
+ */
+function skipIndentBefore(content: string, index: number): number {
+	let start = index;
+	while (start > 0) {
+		const previous = content.charAt(start - 1);
+		if (previous !== ' ' && previous !== '\t') break;
+		start--;
+	}
+	return start;
+}
+
+/**
  * 判断某个时间戳是否为本插件排版结果的"无用户名头部"，是则返回该行起始位置，否则返回 -1。
  *
  * 隐藏用户名时，头部是独占一行的归一化时间戳。重新解析这类内容必须直接按
@@ -240,7 +258,8 @@ export function formatChatLog(
 			// 落在图片链接内部的候选是图片路径片段，不能当作用户名（否则图片链接会被切断）
 			if (!overlapsImageToken(imageRanges, candidateStart, candidateStart + userMatch[1].length)) {
 				userName = userMatch[1].trim();
-				fragmentEnd = candidateStart;
+				// 头部行自己的缩进不留进正文，否则两条消息之间会多出一行纯空白
+				fragmentEnd = skipIndentBefore(rawContent, candidateStart);
 			}
 		}
 

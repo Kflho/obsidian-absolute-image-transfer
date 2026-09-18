@@ -1,6 +1,8 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import ImageTransferPlugin from "./main";
 import type { ChatImageOrder, ChatIndent } from "./chat-log";
+import { DEFAULT_LEADING_INDENT_MODE, resolveLeadingIndentMode } from "./text-layout";
+import type { LeadingIndentMode } from "./text-layout";
 
 export interface ImageTransferSettings {
 	attachmentLocation: string;
@@ -27,6 +29,9 @@ export interface ImageTransferSettings {
 	chatImageOrder: ChatImageOrder;
 	/** 头部信息全部关闭时，是否在相邻消息之间插入空行 */
 	chatBlankLineBetweenMessages: boolean;
+	// ---- 通用排版修复 ----
+	/** 行首缩进修复力度：把"用空格写的缩进"改回 Tab */
+	textLeadingIndentFix: LeadingIndentMode;
 }
 
 export const DEFAULT_SETTINGS: ImageTransferSettings = {
@@ -43,7 +48,9 @@ export const DEFAULT_SETTINGS: ImageTransferSettings = {
 	chatShowTime: true,
 	chatIndent: 'tab',
 	chatImageOrder: 'keep',
-	chatBlankLineBetweenMessages: false
+	chatBlankLineBetweenMessages: false,
+	// 默认「保守」：能修掉聊天记录里典型的空格混排，又不会动 Markdown 列表的嵌套缩进
+	textLeadingIndentFix: DEFAULT_LEADING_INDENT_MODE
 }
 
 export class ImageTransferSettingTab extends PluginSettingTab {
@@ -232,6 +239,24 @@ export class ImageTransferSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.chatBlankLineBetweenMessages)
 				.onChange(async (value) => {
 					this.plugin.settings.chatBlankLineBetweenMessages = value;
+					await this.plugin.saveSettings();
+				}));
+
+		// --------------------------------------------------------
+		// 通用排版修复（聊天记录以外的排版毛病）
+		// --------------------------------------------------------
+		new Setting(containerEl).setName('文本排版修复').setHeading();
+
+		new Setting(containerEl)
+			.setName('行首缩进修复')
+			.setDesc('把行首"用空格写的缩进"改回 tab：4 个空格算一个 tab，混在 tab 之间的零散空格删掉。正文、图片前多打的 1~3 个空格一并删掉；后面跟列表子项 / 引用 / 标题等块级结构时保留缩进。frontmatter 与代码块内部不动')
+			.addDropdown(dropdown => dropdown
+				.addOption('smart', '智能：列表子项保留，其余行首空格删掉 (推荐)')
+				.addOption('strict', '严格：行首只留 tab，空格全删')
+				.addOption('off', '关闭')
+				.setValue(this.plugin.settings.textLeadingIndentFix)
+				.onChange(async (value) => {
+					this.plugin.settings.textLeadingIndentFix = resolveLeadingIndentMode(value);
 					await this.plugin.saveSettings();
 				}));
 	}

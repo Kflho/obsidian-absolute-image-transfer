@@ -1,6 +1,7 @@
 import { App, Editor, MarkdownView, MarkdownFileInfo, MenuItem, Modal, Notice, Plugin, TFile, TFolder, TAbstractFile, Menu, normalizePath, Platform } from 'obsidian';
 import { DEFAULT_SETTINGS, ImageTransferSettings, ImageTransferSettingTab } from "./settings";
 import { ChatLogOptions, formatChatLog, resolveIndent } from "./chat-log";
+import { fixLeadingIndent, resolveLeadingIndentMode } from "./text-layout";
 import { applyImageSize, ImageSizeOptions } from "./image-size";
 import { ImageSizeModal } from "./ui/image-size-modal";
 import { getTargetAttachmentFolder as ensureTargetAttachmentFolder } from "./attachment-folder";
@@ -293,7 +294,7 @@ export default class ImageTransferPlugin extends Plugin {
 
         this.addCommand({
             id: 'format-chat-log-current-note',
-            name: '修复当前笔记的聊天记录排版',
+            name: '修复当前笔记的排版（聊天记录与行首缩进）',
             editorCallback: (_editor: Editor, ctx: MarkdownView | MarkdownFileInfo) => {
                 if (!ctx.file) {
                     new Notice('⚠️ 无法获取当前文件，请确保您打开了一篇笔记！');
@@ -305,7 +306,7 @@ export default class ImageTransferPlugin extends Plugin {
 
         this.addCommand({
             id: 'format-chat-log-entire-vault',
-            name: '修复整个仓库的聊天记录排版',
+            name: '修复整个仓库的排版（聊天记录与行首缩进）',
             callback: () => {
                 void this.runChatLog(this.app.vault.getMarkdownFiles(), '整个仓库');
             }
@@ -940,8 +941,9 @@ export default class ImageTransferPlugin extends Plugin {
     }
 
     /**
-     * 核心功能三：修复聊天记录排版
-     * 算法实现见 chat-log.ts（纯函数，脱离 Obsidian 可独立验证幂等性），此处只负责读写文件。
+     * 核心功能三：修复聊天记录排版 + 其他排版问题
+     * 算法实现见 chat-log.ts 与 text-layout.ts（均为纯函数，脱离 Obsidian 可独立验证幂等性），
+     * 此处只负责读写文件。
      */
     /**
      * 批量修正全库图片链接格式（重命名完成后调用一次即可）
@@ -997,7 +999,15 @@ export default class ImageTransferPlugin extends Plugin {
     }
     async processChatLog(file: TFile): Promise<boolean> {
         const rawContent = await this.app.vault.read(file);
-        const result = formatChatLog(rawContent, this.getChatLogOptions());
+
+        // 顺序很重要：先修行首缩进，再交给聊天记录排版引擎。
+        // 排版引擎会按「正文缩进」设置重新缩进每条消息的正文，所以修缩进必须放在它前面 ——
+        // 放在后面会连用户设置的「2/4 个空格缩进」一起改成 Tab。
+        // 放在前面则只影响排版引擎原样保留的那些行（没认成消息的段落、聊天记录以外的正文），
+        // 而正文行本来就会被 trim 后按设置重新缩进，不受影响。
+        const indentMode = resolveLeadingIndentMode(this.settings.textLeadingIndentFix);
+        const prepared = fixLeadingIndent(rawContent, indentMode);
+        const result = formatChatLog(prepared, this.getChatLogOptions());
 
         // 只有当输出内容发生了真正变化时才会触发生效，解决无限重复触发的Bug
         if (result !== rawContent) {
@@ -1296,7 +1306,7 @@ export default class ImageTransferPlugin extends Plugin {
         this.addSubmenuEntry(parent, '文本排版', 'message-square', (menu) => {
             menu.addItem((item) => {
                 item
-                    .setTitle(`修复${where}的聊天记录排版`)
+                    .setTitle(`修复${where}的排版（聊天记录与行首缩进）`)
                     .setIcon('message-square')
                     .onClick(async () => {
                         await this.runChatLog(files, where);
@@ -1383,15 +1393,15 @@ export default class ImageTransferPlugin extends Plugin {
     }
 
     /**
-     * 修复聊天记录排版：命令面板与右键菜单共用同一条路径。
-     * formatChatLog 是纯函数且严格幂等，只有内容真正变化时才写回。
+     * 修复排版：命令面板与右键菜单共用同一条路径。
+     * 行首缩进修复 + 聊天记录排版都是纯函数且严格幂等，只有内容真正变化时才写回。
      */
     private async runChatLog(files: TFile[], where: string) {
         await this.runPerFile(
-            '💬 聊天记录排版',
+            '💬 排版修复',
             files,
             async (file) => (await this.processChatLog(file)) ? 1 : 0,
-            (count) => `🎉 ${where}共修复了 ${count} 篇笔记的聊天记录。`
+            (count) => `🎉 ${where}共修复了 ${count} 篇笔记的排版。`
         );
     }
 

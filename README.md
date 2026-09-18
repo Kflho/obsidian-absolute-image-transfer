@@ -43,11 +43,25 @@ Reformats exported chat logs from messy single-line timestamps into clean, inden
 
 Idempotent — running it multiple times on the same text won't produce duplicate newlines or extra whitespace.
 
+The same command also fixes **broken leading indentation**, which is what copied QQ/WeChat text usually suffers from: a line starts with a space plus a tab (`" \t"`), or tabs with trailing spaces (`"\t\t "`). Indentation should be tabs only, with 4 spaces counting as one tab:
+
+| Before | After | Rule |
+|--------|-------|------|
+| `" \tmessage"` | `"\tmessage"` | space + tab → tab |
+| `"\t\t message"` | `"\t\tmessage"` | stray spaces around tabs removed |
+| `"    message"` | `"\tmessage"` | 4 spaces = 1 tab (same column) |
+| `"  message"` | `"message"` | 1–3 stray spaces before plain text or an image are dropped |
+| `"  - sub item"` | unchanged | a list marker follows, so the indent is real nesting |
+| `"  paragraph"` under a list item, after a blank line | unchanged | it is a paragraph inside that list item |
+
+YAML frontmatter and anything inside a fenced code block (``` / ~~~) is never touched — there the indentation is syntax, not layout.
+
 The layout is configurable (see **Settings** below):
 
 - Toggle each piece of header info independently — username, date, time
 - Choose the body indent — tab, 2 spaces, 4 spaces, or none
 - When a message contains both an image and text, choose whether the image goes above or below the text (or keep the original order)
+- Choose how aggressively leading indentation is rewritten (off / smart / strict)
 
 ### 4. Set image size in one click
 
@@ -98,9 +112,9 @@ The right-click menu is grouped into two submenus so it stays short: **图片功
 
 | Method | Action |
 |--------|--------|
-| Right-click a `.md` file | **图片功能**: convert / rename / organize locations / set size · **文本排版**: fix chat log |
+| Right-click a `.md` file | **图片功能**: convert / rename / organize locations / set size · **文本排版**: fix layout (chat log + leading indent) |
 | Right-click a folder | The same two submenus, applied to every note in that folder |
-| Command palette (`Ctrl+P`) | Every menu action is also a command: convert images (current note / entire vault), rename garbled images (current note / entire vault), rename all images vault-wide (normal or forced), organize image locations (current note / entire vault), set image size (current note / entire vault), fix chat log formatting (current note / entire vault) |
+| Command palette (`Ctrl+P`) | Every menu action is also a command: convert images (current note / entire vault), rename garbled images (current note / entire vault), rename all images vault-wide (normal or forced), organize image locations (current note / entire vault), set image size (current note / entire vault), fix layout — chat log and leading indent (current note / entire vault) |
 
 ### Settings
 
@@ -125,6 +139,10 @@ Chat log formatting:
 All defaults reproduce the previous layout exactly, so existing notes are not reformatted until you change a setting.
 
 Blank lines already present in the source text are always preserved.
+
+Text layout fixes (applied by the same command, to the whole note):
+
+- **Leading indent fix** — smart (default: 4 spaces = 1 tab, tab/space mixes normalized, 1–3 stray spaces before plain text or images dropped, while list-item indentation and paragraphs inside list items are kept), strict (tabs only, every leading space dropped), or off
 
 ## Supported formats
 
@@ -151,6 +169,7 @@ Feature logic is split into focused modules so it can be tested without Obsidian
 | Module | Responsibility |
 |--------|----------------|
 | `src/chat-log.ts` | chat log layout (username / date / time toggles, indent, image order, blank lines) |
+| `src/text-layout.ts` | general layout fixes — leading indentation (4 spaces = 1 tab), with frontmatter and code blocks protected |
 | `src/image-size.ts` | rewriting `\|100` / `\|100x200` sizes, caption-safe |
 | `src/image-links.ts` | link resolution, same-name ambiguity detection, link form choice |
 | `src/image-organizer.ts` | copying images into a note's own attachment folder and repointing links |
@@ -167,6 +186,12 @@ Feature logic is split into focused modules so it can be tested without Obsidian
 3. Enable the plugin in Settings → Community Plugins
 
 ## Changelog
+
+### v1.1.8
+- The chat log command (and the **文本排版** submenu entry) now also fixes **broken leading indentation**: a line starting with space + tab (`" \t"`), tabs with trailing spaces (`"\t\t "`), a tab written as 4 spaces, or 1–3 stray spaces in front of plain text/an image is normalized to tabs only. `frontmatter` and fenced code blocks are left untouched, and indentation that carries meaning is preserved (a following list marker / `>` / `#` / `|` / fence, or a paragraph inside a list item after a blank line)
+- New setting **Leading indent fix** — smart (default), strict (tabs only, list nesting flattened too), or off
+- Fixed: a chat log header line that carried its own indentation (`" \t李四 2024/1/5 14:31:02"`) left that whitespace behind as an empty-looking line between messages; the header's indentation is no longer emitted as message body
+- New module `src/text-layout.ts` plus `test/text-layout.test.ts` (expected outputs, safety guards for frontmatter / code blocks / nested lists / list-item paragraphs, idempotency, and idempotency of the combined indent + chat log pipeline)
 
 ### v1.1.7
 - The **图片功能** / **文本排版** right-click submenus now use Obsidian's own submenu: a `›` chevron sits at the right edge of the entry and the submenu opens beside it on hover or click, with the parent menu staying open (keyboard left/right works too). On versions without that API the previous click-to-open behaviour is kept, with `›` shown in the title
@@ -290,8 +315,22 @@ MIT
 | 正文缩进 | 制表符 (tab) / 2 个空格 / 4 个空格 / 不缩进 |
 | 图文消息中图片的位置 | 图片在上方 / 图片在下方 / 保持原顺序 |
 | 消息之间插入空行 | 仅当用户名、日期、时间全部关闭时可用；用空行分隔相邻消息，便于区分说话人 |
+| 行首缩进修复 | 智能：列表子项保留，其余行首空格删掉（推荐）/ 严格：行首只留 tab，空格全删 / 关闭 |
 
 以上默认值与原版排版结果完全一致，升级后不改变已有笔记，只有主动修改设置才会生效。源文里本来就有的空行始终会被保留。
+
+同一条命令还会顺手修掉**行首的坏缩进**——从 QQ/微信复制来的文本，行首常常是"空格 + Tab"（`" \t"`）或"Tab 带零散空格"（`"\t\t "`）。规则是**行首只留 tab**，其中 4 个空格算一个 tab：
+
+| 修复前 | 修复后 | 规则 |
+|--------|--------|------|
+| `" \t消息"` | `"\t消息"` | 空格 + Tab → Tab |
+| `"\t\t 消息"` | `"\t\t消息"` | Tab 前后的零散空格删掉 |
+| `"    消息"` | `"\t消息"` | 4 个空格 = 1 个 tab（列数不变，渲染层级不变） |
+| `"  消息"` | `"消息"` | 正文、图片前手滑多打的 1~3 个空格删掉 |
+| `"  - 子项"` | 不动 | 后面跟列表符号，这是真的嵌套缩进 |
+| 列表项下方、隔空行的 `"  段落"` | 不动 | 它是该列表项里的段落，缩进有语法含义 |
+
+frontmatter 与代码块（``` / ~~~）内部的缩进属于语法或内容，一律不碰。
 
 > 说明：关闭「显示用户名」后头部只剩时间戳，此时聊天记录上方紧邻的其他文字会被原样保留、不参与排版，以免误删内容。
 
@@ -342,9 +381,9 @@ MIT
 
 | 方式 | 操作 |
 |------|------|
-| 右键 `.md` 文件 | **图片功能**：转换 / 重命名 / 整理位置 / 设置大小 · **文本排版**：修复聊天记录 |
+| 右键 `.md` 文件 | **图片功能**：转换 / 重命名 / 整理位置 / 设置大小 · **文本排版**：修复排版（聊天记录 + 行首缩进） |
 | 右键文件夹 | 同样两个二级栏，作用于该文件夹下所有笔记 |
-| 命令面板 (`Ctrl+P`) | 菜单里的每个操作都有对应命令：转换图片（当前笔记 / 整个仓库）、重命名乱码图片（当前笔记 / 整个仓库）、重命名全部图片（普通 / 强制）、整理图片位置（当前笔记 / 整个仓库）、设置图片大小（当前笔记 / 整个仓库）、修复聊天记录排版（当前笔记 / 整个仓库） |
+| 命令面板 (`Ctrl+P`) | 菜单里的每个操作都有对应命令：转换图片（当前笔记 / 整个仓库）、重命名乱码图片（当前笔记 / 整个仓库）、重命名全部图片（普通 / 强制）、整理图片位置（当前笔记 / 整个仓库）、设置图片大小（当前笔记 / 整个仓库）、修复排版（聊天记录与行首缩进，当前笔记 / 整个仓库） |
 
 ## 本地开发
 
@@ -360,6 +399,7 @@ npm run lint
 | 模块 | 职责 |
 |------|------|
 | `src/chat-log.ts` | 聊天记录排版（用户名/日期/时间开关、缩进、图文顺序、空行） |
+| `src/text-layout.ts` | 通用排版修复：行首缩进归一（4 空格 = 1 个 tab），frontmatter 与代码块受保护 |
 | `src/image-size.ts` | 改写 `\|100` / `\|100x200` 尺寸，保护图片说明文字 |
 | `src/image-links.ts` | 链接解析、同名歧义识别、链接形式决策 |
 | `src/image-organizer.ts` | 把图片复制进笔记自己的附件夹并改写链接 |
@@ -386,6 +426,12 @@ npm run lint
 批量操作前建议备份仓库。
 
 ## 更新日志
+
+### v1.1.8
+- 聊天记录排版命令（以及右键 **文本排版** 里的那一项）现在还会修掉**行首的坏缩进**：`" \t"`（空格 + Tab）、`"\t\t "`（Tab 带零散空格）、"一个 tab 写成 4 个空格"、以及正文/图片前手滑多打的 1~3 个空格，都会归一成纯 tab。frontmatter 与代码块内部不动；缩进有语法含义的地方也保留（后面跟列表符号 / 引用 / 标题 / 表格，或列表项里隔空行的段落）
+- 新增设置项 **行首缩进修复**：智能（默认）/ 严格（行首只留 tab，列表嵌套也压平）/ 关闭
+- 修复：头部行自带缩进时（如 `" \t李四 2024/1/5 14:31:02"`），那截缩进会以"看起来是空行"的形式留在两条消息之间；现在不再当成正文输出
+- 新增模块 `src/text-layout.ts` 与 `test/text-layout.test.ts`（期望输出、frontmatter / 代码块 / 列表子项 / 列表项段落的安全边界、幂等性，以及"缩进 + 聊天记录"整条链的幂等性）
 
 ### v1.1.7
 - 右键二级菜单（**图片功能** / **文本排版**）改用 Obsidian 原生子菜单：菜单项最右侧带 `›` 箭头，悬停或点击即在旁边展开，父菜单不收起，键盘左右键也能进出。没有该接口的旧版本退回原行为，标题自带 `›`

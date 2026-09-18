@@ -93,7 +93,7 @@ const OPERATIONS: Array<{ menu: RegExp; commands: string[] }> = [
 		commands: ["set-image-size-current-note", "set-image-size-entire-vault"],
 	},
 	{
-		menu: /^修复.*的聊天记录排版$/,
+		menu: /^修复.*的排版（聊天记录与行首缩进）$/,
 		commands: ["format-chat-log-current-note", "format-chat-log-entire-vault"],
 	},
 ];
