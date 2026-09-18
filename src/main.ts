@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, MarkdownFileInfo, Modal, Notice, Plugin, TFile, TFolder, TAbstractFile, Menu, normalizePath, Platform } from 'obsidian';
+import { App, Editor, MarkdownView, MarkdownFileInfo, MenuItem, Modal, Notice, Plugin, TFile, TFolder, TAbstractFile, Menu, normalizePath, Platform } from 'obsidian';
 import { DEFAULT_SETTINGS, ImageTransferSettings, ImageTransferSettingTab } from "./settings";
 import { ChatLogOptions, formatChatLog, resolveIndent } from "./chat-log";
 import { applyImageSize, ImageSizeOptions } from "./image-size";
@@ -13,6 +13,14 @@ import {
 import { organizeNoteImages } from "./image-organizer";
 import * as fs from 'fs/promises';
 import * as path from 'path';
+
+/**
+ * MenuItem 的运行时扩展：Obsidian 一直有原生子菜单，只是没写进公开类型定义。
+ * 调用 setSubmenu() 后菜单项会获得 `has-submenu` 类，并在最右侧自动画出 › 箭头
+ * （`div.menu-item-icon.mod-submenu`，配合 `.menu-item-title { flex: 1 0 0 }` 顶到行尾）。
+ * 拿不到时（旧版本 / 未来被移除）回退到"点击后在光标处弹出"，功能不受影响。
+ */
+type MenuItemWithSubmenu = MenuItem & { setSubmenu?: () => Menu };
 
 export default class ImageTransferPlugin extends Plugin {
     settings!: ImageTransferSettings;
@@ -263,8 +271,49 @@ export default class ImageTransferPlugin extends Plugin {
             }
         });
 
+        this.addCommand({
+            id: 'rename-garbled-images-current-note',
+            name: '重命名当前笔记中的乱码图片',
+            editorCallback: (_editor: Editor, ctx: MarkdownView | MarkdownFileInfo) => {
+                if (!ctx.file) {
+                    new Notice('⚠️ 无法获取当前文件，请确保您打开了一篇笔记！');
+                    return;
+                }
+                void this.runGarbledRename([ctx.file], '本文件内');
+            }
+        });
+
+        this.addCommand({
+            id: 'rename-garbled-images-entire-vault',
+            name: '重命名整个仓库中的乱码图片',
+            callback: () => {
+                void this.runGarbledRename(this.app.vault.getMarkdownFiles(), '整个仓库');
+            }
+        });
+
+        this.addCommand({
+            id: 'format-chat-log-current-note',
+            name: '修复当前笔记的聊天记录排版',
+            editorCallback: (_editor: Editor, ctx: MarkdownView | MarkdownFileInfo) => {
+                if (!ctx.file) {
+                    new Notice('⚠️ 无法获取当前文件，请确保您打开了一篇笔记！');
+                    return;
+                }
+                void this.runChatLog([ctx.file], '本文件内');
+            }
+        });
+
+        this.addCommand({
+            id: 'format-chat-log-entire-vault',
+            name: '修复整个仓库的聊天记录排版',
+            callback: () => {
+                void this.runChatLog(this.app.vault.getMarkdownFiles(), '整个仓库');
+            }
+        });
+
         // --------------------------------------------------------
         // 2. 注册右键菜单（图片功能 / 文本排版 两个二级菜单）
+        //    菜单里的每个操作都在上面有对应命令，两条路走同一套实现
         // --------------------------------------------------------
         this.registerFileMenu();
 
@@ -1135,28 +1184,39 @@ export default class ImageTransferPlugin extends Plugin {
     /**
      * 往父菜单里添加一个二级栏入口。
      *
-     * Obsidian 公开 API 没有原生子菜单（MenuItem 只有 setSection / setIsLabel），
-     * 这里在点击时新建一个 Menu 并在鼠标位置弹出：父菜单收起、子菜单随即在光标处展开，
-     * 观感与二级菜单一致，且完全基于公开 API。
+     * 优先使用 Obsidian 的原生子菜单（MenuItem.setSubmenu）：它负责在菜单项最右边
+     * 画出 › 箭头，并在悬停/点击时于旁边展开子菜单，父菜单保持打开 —— 与系统菜单一致，
+     * 用户一眼就能看出"这里还有下一级"。
+     *
+     * 该接口没有写进公开类型定义，所以运行时探测；万一某天没了，就退回到旧做法：
+     * 点击后在光标处弹出子菜单，标题自带 › 以免看不出层级。
      */
     private addSubmenuEntry(parent: Menu, title: string, icon: string, build: (menu: Menu) => void) {
         parent.addItem((item) => {
-            item
-                .setTitle(title)
-                .setIcon(icon)
-                .onClick((evt: MouseEvent | KeyboardEvent) => {
-                    const submenu = new Menu();
-                    build(submenu);
-                    // 用坐标判断而不是 instanceof MouseEvent：弹出窗口里的 MouseEvent
-                    // 与主窗口不是同一个构造器，instanceof 会误判成键盘事件
-                    const pointer = evt as MouseEvent;
-                    if (typeof pointer.clientX === 'number' && typeof pointer.clientY === 'number') {
-                        submenu.showAtMouseEvent(pointer);
-                    } else {
-                        // 键盘触发时没有坐标，退化为在窗口中上部弹出
-                        submenu.showAtPosition({ x: window.innerWidth / 2, y: window.innerHeight / 3 });
-                    }
-                });
+            const nativeSetSubmenu = (item as MenuItemWithSubmenu).setSubmenu;
+            const hasNativeSubmenu = typeof nativeSetSubmenu === 'function';
+
+            // 原生子菜单的箭头由 Obsidian 自己画，只有退化路径需要手工补 ›
+            item.setTitle(hasNativeSubmenu ? title : `${title} ›`).setIcon(icon);
+
+            if (hasNativeSubmenu) {
+                build(nativeSetSubmenu.call(item));
+                return;
+            }
+
+            item.onClick((evt: MouseEvent | KeyboardEvent) => {
+                const submenu = new Menu();
+                build(submenu);
+                // 用坐标判断而不是 instanceof MouseEvent：弹出窗口里的 MouseEvent
+                // 与主窗口不是同一个构造器，instanceof 会误判成键盘事件
+                const pointer = evt as MouseEvent;
+                if (typeof pointer.clientX === 'number' && typeof pointer.clientY === 'number') {
+                    submenu.showAtMouseEvent(pointer);
+                } else {
+                    // 键盘触发时没有坐标，退化为在窗口中上部弹出
+                    submenu.showAtPosition({ x: window.innerWidth / 2, y: window.innerHeight / 3 });
+                }
+            });
         });
     }
 
@@ -1189,17 +1249,7 @@ export default class ImageTransferPlugin extends Plugin {
                     .setTitle(`重命名${where}的乱码图片`)
                     .setIcon('image-minus')
                     .onClick(async () => {
-                        const reservedPaths = new Map<string, string>();
-                        const reservedBasenames = this.buildVaultBasenameMap();
-                        await this.runPerFile(
-                            '🔍 乱码图片扫描',
-                            files,
-                            (file) => this.processGarbledImages(file, reservedPaths, reservedBasenames),
-                            (count) => `🎉 共重命名了 ${count} 张乱码图片。`,
-                            async () => {
-                                await this.fixAllImageLinkFormats();
-                            }
-                        );
+                        await this.runGarbledRename(files, where);
                     });
             });
 
@@ -1249,12 +1299,7 @@ export default class ImageTransferPlugin extends Plugin {
                     .setTitle(`修复${where}的聊天记录排版`)
                     .setIcon('message-square')
                     .onClick(async () => {
-                        await this.runPerFile(
-                            '💬 聊天记录排版',
-                            files,
-                            async (file) => (await this.processChatLog(file)) ? 1 : 0,
-                            (count) => `🎉 共修复了 ${count} 篇笔记的聊天记录。`
-                        );
+                        await this.runChatLog(files, where);
                     });
             });
         });
@@ -1315,6 +1360,39 @@ export default class ImageTransferPlugin extends Plugin {
             this.restoreNotices(finalMsg);
             this.isRenaming = false;
         }
+    }
+
+    /**
+     * 重命名乱码图片：命令面板与右键菜单共用同一条路径。
+     *
+     * 全库预扫描文件名 + 批次内预留，保证重命名出来的名字在仓库里唯一；
+     * 收尾统一修正链接格式（重命名由 Obsidian 原生接口改写引用，这里只做格式归一）。
+     */
+    private async runGarbledRename(files: TFile[], where: string) {
+        const reservedPaths = new Map<string, string>();
+        const reservedBasenames = this.buildVaultBasenameMap();
+        await this.runPerFile(
+            '🔍 乱码图片扫描',
+            files,
+            (file) => this.processGarbledImages(file, reservedPaths, reservedBasenames),
+            (count) => `🎉 ${where}共重命名了 ${count} 张乱码图片。`,
+            async () => {
+                await this.fixAllImageLinkFormats();
+            }
+        );
+    }
+
+    /**
+     * 修复聊天记录排版：命令面板与右键菜单共用同一条路径。
+     * formatChatLog 是纯函数且严格幂等，只有内容真正变化时才写回。
+     */
+    private async runChatLog(files: TFile[], where: string) {
+        await this.runPerFile(
+            '💬 聊天记录排版',
+            files,
+            async (file) => (await this.processChatLog(file)) ? 1 : 0,
+            (count) => `🎉 ${where}共修复了 ${count} 篇笔记的聊天记录。`
+        );
     }
 
     /**

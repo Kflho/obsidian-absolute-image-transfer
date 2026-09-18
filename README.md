@@ -94,13 +94,13 @@ Available from the right-click **图片功能 → 整理…图片位置** submen
 
 ## How to use
 
-The right-click menu is grouped into two submenus so it stays short: **图片功能** (image tools) and **文本排版** (text layout). Each opens on click at the cursor.
+The right-click menu is grouped into two submenus so it stays short: **图片功能** (image tools) and **文本排版** (text layout). Both carry a `›` chevron at the right edge and open on hover or click — they use Obsidian's own submenu, so the parent menu stays open.
 
 | Method | Action |
 |--------|--------|
 | Right-click a `.md` file | **图片功能**: convert / rename / organize locations / set size · **文本排版**: fix chat log |
 | Right-click a folder | The same two submenus, applied to every note in that folder |
-| Command palette (`Ctrl+P`) | Convert images in current note or entire vault; rename all images vault-wide; organize image locations; set image size (current note / entire vault) |
+| Command palette (`Ctrl+P`) | Every menu action is also a command: convert images (current note / entire vault), rename garbled images (current note / entire vault), rename all images vault-wide (normal or forced), organize image locations (current note / entire vault), set image size (current note / entire vault), fix chat log formatting (current note / entire vault) |
 
 ### Settings
 
@@ -158,6 +158,8 @@ Feature logic is split into focused modules so it can be tested without Obsidian
 
 `npm test` runs expected-output checks, idempotency across every settings combination, blank-line and content-loss invariants, and the safety rules that keep captions, non-image links and same-name images untouched.
 
+`test/commands.test.ts` boots the plugin against a stubbed Obsidian API and audits the entry points: every right-click menu action must have a matching command (and the reverse), command IDs are locked in, and both submenu paths — Obsidian's native `setSubmenu` and the fallback — must produce the same actions.
+
 ## Installation
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from [Releases](https://github.com/Kflho/obsidian-absolute-image-transfer/releases)
@@ -165,6 +167,11 @@ Feature logic is split into focused modules so it can be tested without Obsidian
 3. Enable the plugin in Settings → Community Plugins
 
 ## Changelog
+
+### v1.1.7
+- The **图片功能** / **文本排版** right-click submenus now use Obsidian's own submenu: a `›` chevron sits at the right edge of the entry and the submenu opens beside it on hover or click, with the parent menu staying open (keyboard left/right works too). On versions without that API the previous click-to-open behaviour is kept, with `›` shown in the title
+- Fixed: **fix chat log formatting** and **rename garbled images** could only be reached from the right-click menu. Both are now commands as well (current note / entire vault), so every menu action has a command-palette twin
+- New regression test: boots the plugin against a stubbed Obsidian API and audits both directions — every menu action has a command, command IDs stay stable, and both submenu paths produce the same actions
 
 ### v1.1.6
 - New: **organize image locations** — finds images that a note references from *another* folder (the usual result of copy-pasting a note) and brings a copy into that note's own attachment folder, then repoints the link
@@ -331,14 +338,13 @@ MIT
 
 ## 使用方式
 
-右键菜单收进了两个二级栏，顶层不再一长串：**图片功能** 与 **文本排版**，点击后在光标处展开。
-（Obsidian 公开 API 没有原生子菜单，这里用公开 API 在点击位置弹出菜单实现同样效果。）
+右键菜单收进了两个二级栏，顶层不再一长串：**图片功能** 与 **文本排版**。两项右侧带 `›` 箭头，悬停或点击即在旁边展开 —— 用的是 Obsidian 原生子菜单，父菜单不会收起，键盘左右键也能进出子菜单。
 
 | 方式 | 操作 |
 |------|------|
 | 右键 `.md` 文件 | **图片功能**：转换 / 重命名 / 整理位置 / 设置大小 · **文本排版**：修复聊天记录 |
 | 右键文件夹 | 同样两个二级栏，作用于该文件夹下所有笔记 |
-| 命令面板 (`Ctrl+P`) | 转换当前笔记 / 全库转换 / 全库重命名 / 整理图片位置 / 设置图片大小 |
+| 命令面板 (`Ctrl+P`) | 菜单里的每个操作都有对应命令：转换图片（当前笔记 / 整个仓库）、重命名乱码图片（当前笔记 / 整个仓库）、重命名全部图片（普通 / 强制）、整理图片位置（当前笔记 / 整个仓库）、设置图片大小（当前笔记 / 整个仓库）、修复聊天记录排版（当前笔记 / 整个仓库） |
 
 ## 本地开发
 
@@ -359,6 +365,8 @@ npm run lint
 | `src/image-organizer.ts` | 把图片复制进笔记自己的附件夹并改写链接 |
 | `src/attachment-folder.ts` | 附件文件夹解析与创建（多个功能共用） |
 
+`test/commands.test.ts` 会把插件在 Obsidian API 替身上真的 `onload` 一遍，审计入口是否齐全：右键菜单里的每个操作都必须有对应命令（反向也查），命令 ID 被锁定，且原生子菜单与退化路径产出的操作必须一致。
+
 ## 支持的图片格式
 
 `png` `jpg` `jpeg` `gif` `bmp` `webp` `heic`（图片大小功能额外支持 `avif` `svg`）
@@ -378,6 +386,11 @@ npm run lint
 批量操作前建议备份仓库。
 
 ## 更新日志
+
+### v1.1.7
+- 右键二级菜单（**图片功能** / **文本排版**）改用 Obsidian 原生子菜单：菜单项最右侧带 `›` 箭头，悬停或点击即在旁边展开，父菜单不收起，键盘左右键也能进出。没有该接口的旧版本退回原行为，标题自带 `›`
+- 修复：**修复聊天记录排版** 与 **重命名乱码图片** 之前只能在右键菜单里用，现在都注册了命令（当前笔记 / 整个仓库），菜单里的每个操作在命令面板里都有对应入口
+- 新增回归测试：把插件在 Obsidian API 替身上真正加载一遍，双向审计命令注册 —— 菜单操作必须有命令、命令 ID 保持不变、原生与退化两条子菜单路径产出一致
 
 ### v1.1.6
 - 新增「**整理图片位置**」：找出引用了**别处**图片的链接（复制粘贴笔记后的典型情况），把图片复制一份到本笔记自己的附件夹并改写链接

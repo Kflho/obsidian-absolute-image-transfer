@@ -11,6 +11,7 @@ const entryPoints = [
 	"test/chat-log.test.ts",
 	"test/image-size.test.ts",
 	"test/image-organizer.test.ts",
+	"test/commands.test.ts",
 ];
 const outdir = path.resolve("test/.build");
 
