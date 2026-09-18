@@ -14,7 +14,10 @@
  * 两类行首一律不碰，因为缩进在那儿是内容或语法：
  * - YAML frontmatter（缩进是语法，且 YAML 里禁止用 Tab 缩进）
  * - 围栏代码块内部（``` / ~~~，缩进是代码本身）
+ *
+ * 这两类区域由 line-scan.ts 统一判定，与标记排版、标签排版、板块排序共用。
  */
+import { markProtectedLines } from './line-scan';
 
 /** 行首缩进修复的力度 */
 export type LeadingIndentMode =
@@ -47,10 +50,14 @@ const LIST_MARKER_RE = new RegExp("^(?:" + LIST_MARKER + ")");
 /**
  * 判断缩进之后的这一行是不是"块级结构"，是则它的缩进有语法含义，不能删。
  *
- * 覆盖：列表符号、引用（`>`）、标题（`#`）、表格（`|`）、代码围栏（``` / ~~~）、HTML 块（`<`）。
+ * 覆盖：列表符号、引用（`>`）、标题（`#` 后面要跟空白）、表格（`|`）、代码围栏（``` / ~~~）、HTML 块（`<`）。
  * 反过来说，正文、图片嵌入（`![[...]]`）前面那 1~3 个空格都是多打的。
+ *
+ * `#` 必须后面跟空白才算标题 —— `#标签` 是**标签**，跟正文一样，行首多打的空格该删。
  */
-const BLOCK_STRUCTURE_RE = new RegExp("^(?:" + LIST_MARKER + "|[>#|]|`{3,}|~{3,}|<)");
+const BLOCK_STRUCTURE_RE = new RegExp(
+	"^(?:" + LIST_MARKER + "|[>|]|#{1,6}(?:[ \\t]|$)|`{3,}|~{3,}|<)"
+);
 
 /**
  * 判断这一行是不是"列表项里的续行段落"：本行前面隔着空行，而空行之上最近的非空行是列表项。
@@ -144,38 +151,14 @@ export function fixLeadingIndent(content: string, mode: LeadingIndentMode): stri
 	if (mode === 'off' || content === '') return content;
 
 	const lines = content.split('\n');
-	let inFrontmatter = false;
-	/** 当前所处围栏代码块的围栏（字符 + 长度），null 表示不在代码块里 */
-	let fence: { char: string; length: number } | null = null;
+	const protectedLines = markProtectedLines(lines);
 	let changed = false;
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
 		if (line === undefined) continue;
-
-		// YAML frontmatter：首行 `---` 到下一个 `---` / `...` 之间原样保留
-		if (i === 0 && /^---[ \t]*\r?$/.test(line)) {
-			inFrontmatter = true;
-			continue;
-		}
-		if (inFrontmatter) {
-			if (/^(?:---|\.\.\.)[ \t]*\r?$/.test(line)) inFrontmatter = false;
-			continue;
-		}
-
-		// 围栏代码块：围栏行本身与其内部都是代码，缩进不能动
-		const fenceMatch = /^[ \t]*(`{3,}|~{3,})/.exec(line);
-		if (fenceMatch) {
-			const marker = fenceMatch[1] ?? '';
-			const char = marker.charAt(0);
-			if (fence === null) {
-				fence = { char, length: marker.length };
-			} else if (fence.char === char && marker.length >= fence.length) {
-				fence = null;
-			}
-			continue;
-		}
-		if (fence !== null) continue;
+		// frontmatter 与围栏代码块内部：缩进是语法或内容，原样保留
+		if (protectedLines[i]) continue;
 
 		// 只看行首空白后面还有内容的行；纯空白行（含空行）保持原样
 		const indentMatch = /^[ \t]+(?=\S)/.exec(line);

@@ -1,7 +1,8 @@
-import { App, Editor, MarkdownView, MarkdownFileInfo, MenuItem, Modal, Notice, Plugin, TFile, TFolder, TAbstractFile, Menu, normalizePath, Platform } from 'obsidian';
+﻿import { App, Editor, MarkdownView, MarkdownFileInfo, MenuItem, Modal, Notice, Plugin, TFile, TFolder, TAbstractFile, Menu, normalizePath, Platform } from 'obsidian';
 import { DEFAULT_SETTINGS, ImageTransferSettings, ImageTransferSettingTab } from "./settings";
-import { ChatLogOptions, formatChatLog, resolveIndent } from "./chat-log";
-import { fixLeadingIndent, resolveLeadingIndentMode } from "./text-layout";
+import { ChatLogOptions, resolveIndent } from "./chat-log";
+import { resolveLeadingIndentMode } from "./text-layout";
+import { formatNoteText, TextPipelineOptions } from "./text-pipeline";
 import { applyImageSize, ImageSizeOptions } from "./image-size";
 import { ImageSizeModal } from "./ui/image-size-modal";
 import { getTargetAttachmentFolder as ensureTargetAttachmentFolder } from "./attachment-folder";
@@ -260,7 +261,7 @@ export default class ImageTransferPlugin extends Plugin {
                     new Notice('⚠️ 无法获取当前文件，请确保您打开了一篇笔记！');
                     return;
                 }
-                void this.runOrganizeImages([ctx.file], '当前笔记');
+                return this.runOrganizeImages([ctx.file], '当前笔记');
             }
         });
 
@@ -268,7 +269,7 @@ export default class ImageTransferPlugin extends Plugin {
             id: 'organize-images-entire-vault',
             name: '整理整个仓库的图片位置',
             callback: () => {
-                void this.runOrganizeImages(this.app.vault.getMarkdownFiles(), '整个仓库');
+                return this.runOrganizeImages(this.app.vault.getMarkdownFiles(), '整个仓库');
             }
         });
 
@@ -280,7 +281,7 @@ export default class ImageTransferPlugin extends Plugin {
                     new Notice('⚠️ 无法获取当前文件，请确保您打开了一篇笔记！');
                     return;
                 }
-                void this.runGarbledRename([ctx.file], '本文件内');
+                return this.runGarbledRename([ctx.file], '本文件内');
             }
         });
 
@@ -288,27 +289,27 @@ export default class ImageTransferPlugin extends Plugin {
             id: 'rename-garbled-images-entire-vault',
             name: '重命名整个仓库中的乱码图片',
             callback: () => {
-                void this.runGarbledRename(this.app.vault.getMarkdownFiles(), '整个仓库');
+                return this.runGarbledRename(this.app.vault.getMarkdownFiles(), '整个仓库');
             }
         });
 
         this.addCommand({
             id: 'format-chat-log-current-note',
-            name: '修复当前笔记的排版（聊天记录与行首缩进）',
+            name: '修复当前笔记的排版（聊天记录 / 缩进 / 标签 / 公式）',
             editorCallback: (_editor: Editor, ctx: MarkdownView | MarkdownFileInfo) => {
                 if (!ctx.file) {
                     new Notice('⚠️ 无法获取当前文件，请确保您打开了一篇笔记！');
                     return;
                 }
-                void this.runChatLog([ctx.file], '本文件内');
+                return this.runChatLog([ctx.file], '本文件内');
             }
         });
 
         this.addCommand({
             id: 'format-chat-log-entire-vault',
-            name: '修复整个仓库的排版（聊天记录与行首缩进）',
+            name: '修复整个仓库的排版（聊天记录 / 缩进 / 标签 / 公式）',
             callback: () => {
-                void this.runChatLog(this.app.vault.getMarkdownFiles(), '整个仓库');
+                return this.runChatLog(this.app.vault.getMarkdownFiles(), '整个仓库');
             }
         });
 
@@ -942,7 +943,8 @@ export default class ImageTransferPlugin extends Plugin {
 
     /**
      * 核心功能三：修复聊天记录排版 + 其他排版问题
-     * 算法实现见 chat-log.ts 与 text-layout.ts（均为纯函数，脱离 Obsidian 可独立验证幂等性），
+     * 算法实现见 chat-log.ts、text-layout.ts、markdown-markers.ts、tags.ts、block-sort.ts
+     * （均为纯函数，脱离 Obsidian 可独立验证幂等性），顺序编排见 text-pipeline.ts，
      * 此处只负责读写文件。
      */
     /**
@@ -998,23 +1000,35 @@ export default class ImageTransferPlugin extends Plugin {
         }
     }
     async processChatLog(file: TFile): Promise<boolean> {
-        const rawContent = await this.app.vault.read(file);
+        let changed = false;
 
-        // 顺序很重要：先修行首缩进，再交给聊天记录排版引擎。
-        // 排版引擎会按「正文缩进」设置重新缩进每条消息的正文，所以修缩进必须放在它前面 ——
-        // 放在后面会连用户设置的「2/4 个空格缩进」一起改成 Tab。
-        // 放在前面则只影响排版引擎原样保留的那些行（没认成消息的段落、聊天记录以外的正文），
-        // 而正文行本来就会被 trim 后按设置重新缩进，不受影响。
-        const indentMode = resolveLeadingIndentMode(this.settings.textLeadingIndentFix);
-        const prepared = fixLeadingIndent(rawContent, indentMode);
-        const result = formatChatLog(prepared, this.getChatLogOptions());
+        // 用 vault.process 做"读—改—写"：它会拿到最新内容再写回，
+        // 避免整库批处理时把编辑器里还没落盘的改动覆盖掉（表现为"改了又弹回去"）。
+        // 全部排版步骤（行首缩进 → 标记 → 聊天记录 → 公式 → 标签 → 板块排序）
+        // 在 text-pipeline.ts 里按固定顺序串联，每一步都是幂等的纯函数，顺序理由见那个文件的注释。
+        await this.app.vault.process(file, (content) => {
+            const result = formatNoteText(content, this.getTextPipelineOptions());
+            // 只有当输出内容发生了真正变化时才会写回，解决无限重复触发的Bug
+            if (result === content) return content;
+            changed = true;
+            return result;
+        });
 
-        // 只有当输出内容发生了真正变化时才会触发生效，解决无限重复触发的Bug
-        if (result !== rawContent) {
-            await this.app.vault.modify(file, result);
-            return true;
-        }
-        return false;
+        return changed;
+    }
+
+    /**
+     * 把插件设置转换为排版流水线选项
+     */
+    private getTextPipelineOptions(): TextPipelineOptions {
+        return {
+            leadingIndent: resolveLeadingIndentMode(this.settings.textLeadingIndentFix),
+            chat: this.getChatLogOptions(),
+            mathLayout: this.settings.mathLayout,
+            // 标签排版默认关闭（会挪动正文），关闭时整步跳过
+            tags: this.settings.tagLayout ? { sort: this.settings.tagSort } : null,
+            blockSort: this.settings.blockSort,
+        };
     }
 
     /**
@@ -1306,7 +1320,7 @@ export default class ImageTransferPlugin extends Plugin {
         this.addSubmenuEntry(parent, '文本排版', 'message-square', (menu) => {
             menu.addItem((item) => {
                 item
-                    .setTitle(`修复${where}的排版（聊天记录与行首缩进）`)
+                    .setTitle(`修复${where}的排版（聊天记录 / 缩进 / 标签 / 公式）`)
                     .setIcon('message-square')
                     .onClick(async () => {
                         await this.runChatLog(files, where);
@@ -1318,17 +1332,20 @@ export default class ImageTransferPlugin extends Plugin {
     /**
      * 批量处理外壳：互斥锁 + 通知屏蔽 + 状态栏进度 + 结果通知。
      *
+     * 单篇失败**不中断整批**：记下失败的篇数继续跑完，最后在提示里说明并打日志。
+     * 以前一篇读不出来就会把后面所有笔记都跳过 —— 表现为"整库没修、单篇能修"。
+     *
      * @param label 状态栏进度标签
      * @param files 待处理笔记
      * @param handle 单篇处理函数，返回本篇产生的改动数量（0 表示没有变化）
-     * @param success 汇总消息，参数为改动总数
+     * @param success 汇总消息，参数为改动总数、已处理篇数、失败篇数
      * @param after 全部处理完成后的收尾工作（如统一修正链接格式）
      */
     private async runPerFile(
         label: string,
         files: TFile[],
         handle: (file: TFile) => Promise<number>,
-        success: (total: number) => string,
+        success: (total: number, processed: number, failed: number) => string,
         after?: () => Promise<void>
     ) {
         if (this.isRenaming) {
@@ -1342,11 +1359,20 @@ export default class ImageTransferPlugin extends Plugin {
         let finalMsg = '';
         try {
             let total = 0;
+            let processed = 0;
+            let failed = 0;
             this.showProgress(0, files.length, label);
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
                 if (file) {
-                    total += await handle(file);
+                    processed++;
+                    try {
+                        total += await handle(file);
+                    } catch (e) {
+                        // 单篇出错不拖垮整批：继续跑，最后一起汇报
+                        failed++;
+                        console.error(`❌ [ImageTransfer] ${file.path} 处理失败：`, e);
+                    }
                 }
                 this.showProgress(i + 1, files.length, label);
             }
@@ -1356,10 +1382,13 @@ export default class ImageTransferPlugin extends Plugin {
 
             if (total > 0) {
                 this.finishProgress('✅ 处理完成');
-                finalMsg = success(total);
+                finalMsg = success(total, processed, failed);
             } else {
                 this.clearProgress();
                 finalMsg = 'ℹ️ 没有需要处理的笔记。';
+            }
+            if (failed > 0) {
+                finalMsg += `⚠️ 有 ${failed} 篇处理失败，详情见控制台。`;
             }
         } catch (e) {
             this.clearProgress();
@@ -1394,15 +1423,31 @@ export default class ImageTransferPlugin extends Plugin {
 
     /**
      * 修复排版：命令面板与右键菜单共用同一条路径。
-     * 行首缩进修复 + 聊天记录排版都是纯函数且严格幂等，只有内容真正变化时才写回。
+     * 流水线里的每一步都是纯函数且严格幂等，只有内容真正变化时才写回。
      */
     private async runChatLog(files: TFile[], where: string) {
         await this.runPerFile(
             '💬 排版修复',
             files,
             async (file) => (await this.processChatLog(file)) ? 1 : 0,
-            (count) => `🎉 ${where}共修复了 ${count} 篇笔记的排版。`
+            (count, processed, failed) =>
+                `🎉 ${where}共修复了 ${count} 篇笔记的排版。` +
+                `本次处理 ${processed} 篇${failed > 0 ? `（${failed} 篇出错）` : ''}；${this.describeLayoutSwitches()}`
         );
+    }
+
+    /**
+     * 本次排版开启了哪几步 —— 结果提示里带一句。
+     * "为什么这篇没修"十有八九是某一项开关没开，先把它摆出来省得来回找。
+     */
+    private describeLayoutSwitches(): string {
+        const enabled: string[] = [];
+        if (resolveLeadingIndentMode(this.settings.textLeadingIndentFix) !== 'off') enabled.push('缩进与标记');
+        enabled.push('聊天记录');
+        if (this.settings.mathLayout) enabled.push('公式');
+        if (this.settings.tagLayout) enabled.push(this.settings.tagSort ? '标签（含排序）' : '标签');
+        if (this.settings.blockSort) enabled.push('板块排序');
+        return `已开启：${enabled.join('、')}。`;
     }
 
     /**

@@ -10,6 +10,11 @@ import { pathToFileURL } from "node:url";
 const entryPoints = [
 	"test/chat-log.test.ts",
 	"test/text-layout.test.ts",
+	"test/markdown-markers.test.ts",
+	"test/tags.test.ts",
+	"test/block-sort.test.ts",
+	"test/latex-layout.test.ts",
+	"test/text-pipeline.test.ts",
 	"test/image-size.test.ts",
 	"test/image-organizer.test.ts",
 	"test/commands.test.ts",

@@ -56,12 +56,28 @@ The same command also fixes **broken leading indentation**, which is what copied
 
 YAML frontmatter and anything inside a fenced code block (``` / ~~~) is never touched — there the indentation is syntax, not layout.
 
+The same command also normalizes the whitespace of **block markers** — blockquotes (comments), lists and headings:
+
+| Before | After | Rule |
+|--------|-------|------|
+| `" >quote"` | `"> quote"` | 1–3 stray spaces before `>` are dropped, and `>` gets a space before the text |
+| `">>quote"` | `"> > quote"` | nested quotes written as one canonical form |
+| `">[!note] title"` | `"> [!note] title"` | callout marker followed by a space |
+| `"-    item"` | `"- item"` | list marker followed by exactly one space |
+| `"1)   item"` | `"1) item"` | ordered list, same rule |
+| `"##   heading"` | `"## heading"` | heading marker followed by one space |
+| `"#tag"` | unchanged | no space after `#` → it is a tag, not a heading (adding a space would turn it into one) |
+| `">   - nested"` | unchanged | indent after `>` means a nested block inside the quote |
+| `"- item"` then `"  > quote"` | unchanged | the quote belongs to that list item — its indent is syntax |
+
 The layout is configurable (see **Settings** below):
 
 - Toggle each piece of header info independently — username, date, time
 - Choose the body indent — tab, 2 spaces, 4 spaces, or none
 - When a message contains both an image and text, choose whether the image goes above or below the text (or keep the original order)
-- Choose how aggressively leading indentation is rewritten (off / smart / strict)
+- Choose how aggressively leading indentation is rewritten (off / smart / strict) — this also switches the block-marker fixes on and off
+- Turn **tag layout** on to move inline `#tags` to the end of their block, and **tag sorting** to order them alphabetically
+- Turn **content block sorting** on to sort a note's blocks by first letter
 
 ### 4. Set image size in one click
 
@@ -106,15 +122,67 @@ Image contents are compared byte-for-byte before deciding, so two different pict
 
 Available from the right-click **图片功能 → 整理…图片位置** submenu, and from the command palette (current note / entire vault).
 
+### 6. Tag layout and content block sorting
+
+Two optional layout features, both off by default because they rearrange text:
+
+**Tag layout** — when a block contains both text and tags, the tags are moved to the end of the block, separated from the text by a single space. A paragraph counts as one block, a list item and a heading each count as one, and **a table is handled cell by cell** (moving a tag to the end of the row would shift the columns):
+
+| Before | After |
+|--------|-------|
+| `"#math today I studied limits"` | `"today I studied limits #math"` |
+| `"today I studied #math limits"` | `"today I studied limits #math"` |
+| `"a sentence #note."` | `"a sentence. #note"` |
+| `"- #tag item text"` | `"- item text #tag"` |
+| `"> #tag quoted text"` | `"> quoted text #tag"` |
+| `"\| #tag cell \| other \|"` | `"\| cell #tag \| other \|"` |
+| `"#tag"` on its own line | unchanged (nothing but tags → position kept) |
+
+**Tag sorting** — multiple tags in one place are ordered by first letter (Chinese by pinyin, numbers numerically): `"text #math #note"` → `"text #note #math"`.
+
+Left untouched: frontmatter, fenced and indented code blocks, inline code, `%%comments%%`, wiki links and Markdown links (`[[note#heading]]`, `[text](url#anchor)`), `C#`, `#123`, and `#` written directly after a character. Rows without a leading `|` (non-standard tables) are also left alone.
+
+**Content block sorting** — sorts a note's blocks by first letter (Chinese by pinyin, numbers numerically). Consecutive list items are sorted among themselves, consecutive paragraphs among themselves, so lists and paragraphs never interleave. Headings split the note into sections and are kept in place — sorting only happens between one heading and the next. Tables, images, horizontal rules, footnotes and chat log messages are anchors: they stay where they are and split the sorting range, so a copied chat log is never scrambled. Ordered lists are renumbered after sorting (only when the original numbers were a consecutive run).
+
+### 7. Formula (LaTeX) layout
+
+Rewrites the LaTeX code of formulas — `$$ … $$` blocks and inline `$…$` — so that **the spaces in the code match the spaces the formula renders with**. Inline formulas only get the spacing rules (commas, operators, braces); they are never split across lines, and `$…$` whose content touches the delimiters on both sides is left alone (which is how Obsidian decides what is inline math at all).
+
+| Before | After | Rule |
+|--------|-------|------|
+| `$$\dot{x}=f(x, t)$$` | `$$\dot{x} = f(x, t)$$` | operators, relations and logic symbols get one space on each side (rule 1) |
+| `$$a&b&c$$` | `$$a & b & c$$` | `&` and `\\` are layout symbols: one space on each side |
+| `$$(-x)$$` | `$$(-x)$$` | a sign (`+x`, `-Q`) stays tight against its argument (rule 2) |
+| `$$(x-x_e)$$` | `$$(x - x_e)$$` | …while a real subtraction gets spaces |
+| `$$\partial f$$` | `$$\partial{f}$$` | a command stays tight against its argument; braces keep the command name intact (rule 6) |
+| `$$\sin x$$` / `$$\sin 2x$$` | `$$\sin{x}$$` / `$$\sin2x$$` | braces only where joining would swallow the name (`\sinx` is invalid, `\sin2x` is fine) |
+| `$$A_{i}, \quadA_{j}$$` | `$$A_{i}, A_{j}$$` | a spacing command glued to a letter (`\quadA` — LaTeX reads it as an undefined command and the formula errors out) is split: when a comma or another separator is already there, the redundant spacing is dropped; otherwise it becomes `\quad{A}` |
+| ``$$ x = 1 $$`` | ``$$x = 1$$`` | no space between `$$` and the content (rule 3) |
+| ``$M=1$`` | ``$M = 1$`` | inline formulas get the same spacing rules |
+| ``$y_{i,k}=C_ix_{i,k}+D_i u_{i,k}$`` | ``$y_{i, k} = C_ix_{i, k} + D_iu_{i, k}$`` | …and content that is joined in the rendering is joined in the code |
+| `$$f(x,y)$$` | `$$f(x, y)$$` | a comma gets no space before it and one after |
+| line breaks that are not `\\` | joined into one line | line breaks only where `\\` is (rule 5) |
+| `\\`, then a new line | continuation indented one tab deeper | continuation = first line's indent + one tab; `\begin{}` adds nothing (rule 4) |
+
+Example — a matrix inside a list item:
+
+```
+	说明$$T = (a, b){\begin{bmatrix}1 \\
+		a & b \\
+		\end{bmatrix}}$$
+```
+
+Untouched: frontmatter, fenced and indented code blocks, inline code, `\text{…}` / `\operatorname{…}` arguments (Chinese text and spaces inside are kept verbatim), formulas containing a `%` comment, and inline formulas containing `\\`. A stray `$$` no longer disables the whole note: a region that looks like prose (blank line, heading, fence, rule, or hundreds of lines) is skipped and the real formulas after it are still formatted.
+
 ## How to use
 
 The right-click menu is grouped into two submenus so it stays short: **图片功能** (image tools) and **文本排版** (text layout). Both carry a `›` chevron at the right edge and open on hover or click — they use Obsidian's own submenu, so the parent menu stays open.
 
 | Method | Action |
 |--------|--------|
-| Right-click a `.md` file | **图片功能**: convert / rename / organize locations / set size · **文本排版**: fix layout (chat log + leading indent) |
+| Right-click a `.md` file | **图片功能**: convert / rename / organize locations / set size · **文本排版**: fix layout (chat log / indent / tags / formulas) |
 | Right-click a folder | The same two submenus, applied to every note in that folder |
-| Command palette (`Ctrl+P`) | Every menu action is also a command: convert images (current note / entire vault), rename garbled images (current note / entire vault), rename all images vault-wide (normal or forced), organize image locations (current note / entire vault), set image size (current note / entire vault), fix layout — chat log and leading indent (current note / entire vault) |
+| Command palette (`Ctrl+P`) | Every menu action is also a command: convert images (current note / entire vault), rename garbled images (current note / entire vault), rename all images vault-wide (normal or forced), organize image locations (current note / entire vault), set image size (current note / entire vault), fix layout — chat log, indent, tags and formulas (current note / entire vault) |
 
 ### Settings
 
@@ -142,7 +210,14 @@ Blank lines already present in the source text are always preserved.
 
 Text layout fixes (applied by the same command, to the whole note):
 
-- **Leading indent fix** — smart (default: 4 spaces = 1 tab, tab/space mixes normalized, 1–3 stray spaces before plain text or images dropped, while list-item indentation and paragraphs inside list items are kept), strict (tabs only, every leading space dropped), or off
+- **Leading indent fix** — smart (default: 4 spaces = 1 tab, tab/space mixes normalized, 1–3 stray spaces before plain text or images dropped, while list-item indentation and paragraphs inside list items are kept), strict (tabs only, every leading space dropped), or off. Smart/strict also normalize block markers: `" >quote"` → `"> quote"`, multiple spaces after a list or heading marker collapse to one. Turning it off switches all of these fixes off
+- **Tag layout** — move inline `#tags` to the end of their block, one space away from the text. Off by default
+- **Tag sorting** — order the tags of one block by first letter (Chinese by pinyin, numbers numerically). Keeps the original order when off
+- **Content block sorting** — sort a note's blocks by first letter, section by section. Off by default
+
+Formula layout:
+
+- **Formula layout** — rewrite the LaTeX code inside `$$ … $$` (spacing, line breaks, indentation). Off by default; inline `$…$` is never touched
 
 ## Supported formats
 
@@ -169,7 +244,14 @@ Feature logic is split into focused modules so it can be tested without Obsidian
 | Module | Responsibility |
 |--------|----------------|
 | `src/chat-log.ts` | chat log layout (username / date / time toggles, indent, image order, blank lines) |
-| `src/text-layout.ts` | general layout fixes — leading indentation (4 spaces = 1 tab), with frontmatter and code blocks protected |
+| `src/text-pipeline.ts` | runs the layout steps in a fixed order: indent → markers → chat log → formulas → tags → block sorting |
+| `src/text-layout.ts` | general layout fixes — leading indentation (4 spaces = 1 tab) |
+| `src/markdown-markers.ts` | block marker spacing — blockquotes, lists, headings |
+| `src/tags.ts` | tag layout — moving tags to the end of a block, per-cell tables, tag sorting |
+| `src/block-sort.ts` | content block sorting — sections, anchors, ordered-list renumbering |
+| `src/latex-layout.ts` | formula layout — spacing rules, `$$` delimiters, `\\` line breaks, continuation indent |
+| `src/line-scan.ts` | shared protection rules — frontmatter, fenced code, indented code, `$$` formulas |
+| `src/collate.ts` | "first letter" comparison (Chinese by pinyin, numbers numerically) |
 | `src/image-size.ts` | rewriting `\|100` / `\|100x200` sizes, caption-safe |
 | `src/image-links.ts` | link resolution, same-name ambiguity detection, link form choice |
 | `src/image-organizer.ts` | copying images into a note's own attachment folder and repointing links |
@@ -186,6 +268,21 @@ Feature logic is split into focused modules so it can be tested without Obsidian
 3. Enable the plugin in Settings → Community Plugins
 
 ## Changelog
+
+### v1.2.0
+- Fixed: a line such as `" >quote"` (a stray leading space before a blockquote) used to be treated as meaningful indentation and skipped — nothing was repaired at all. It is now normalized to `"> quote"`, with a space between the marker and the text
+- Fixed: a single stray `$$` used to disable formula formatting for the **whole note** (the `$$` count had to be even). Each `$$` is now paired with the next one that forms a plausible formula region — a region that looks like prose (blank line, heading, fence, rule, hundreds of lines) is skipped and the real formulas after it are still formatted
+- Fixed: a vault-wide run stopped at the **first file that failed to read or write**, silently skipping every note after it — which looked like "the whole-vault command doesn't work, the single-note command does". A failing file is now logged and counted, and the run continues to the end; the summary reports how many notes were processed and how many failed
+- Fixed: vault-wide runs now write through `vault.process` (atomic read-modify-write) so a note open in the editor with unsaved edits is no longer reverted
+- Fixed: leading indent fix no longer treats `#tag` as a heading, so a stray space in front of a tag line is dropped
+- New: block markers are normalized as well — nested quotes (`">>quote"` → `"> > quote"`), callouts (`">[!note]"` → `"> [!note]"`), multiple spaces after a list marker (`"-    item"` → `"- item"`) and after a heading marker (`"##   heading"` → `"## heading"`). `#tag` (no space after `#`) stays a tag and is never turned into a heading; indentation inside a list item or after `>` is preserved
+- New: **tag layout** — when a block holds both text and tags, the tags move to the end of the block, one space away from the text. A paragraph is one block, a list item and a heading are one block each, and tables are handled **cell by cell** (the row would otherwise shift). Tags alone on a line keep their position. Frontmatter, fenced/indented code, `$$` formulas, inline code, `%%comments%%`, wiki links and Markdown links are left alone
+- New: **tag sorting** — the tags of one block are ordered by first letter (Chinese by pinyin, numbers numerically)
+- New: **content block sorting** — sorts a note's blocks by first letter. Headings split the note into sections; tables, images, rules, footnotes, formulas and chat log messages are anchors that stay in place and split the sorting range; lists and paragraphs are sorted separately so they never interleave; ordered lists are renumbered after sorting
+- New: **formula layout** — rewrites the LaTeX code of `$$ … $$` blocks and inline `$…$` so the code's spaces match what the formula renders: `=` `+` `\le` `&` `\\` get one space on each side, a sign or a modifier command stays tight against its argument (`\delta x` → `\delta{x}`), a spacing command glued to a letter (`\quadA`) is repaired, commas get one space after, `$$` hugs the content, invisible whitespace is dropped, line breaks happen only at `\\`, and every continuation line is indented one tab deeper than the first. Inline formulas get the spacing rules only and are never split; `\text{…}` arguments, code blocks and inline formulas containing `\\` are left alone
+- The result notice now reports how many notes were processed, how many failed, and which layout steps are enabled — so "why wasn't this note fixed" (a switch that is off) is visible at a glance
+- Command callbacks return their promise, so the batch path can be driven from tests
+- New modules `src/markdown-markers.ts`, `src/tags.ts`, `src/block-sort.ts`, `src/latex-layout.ts`, `src/text-pipeline.ts`, `src/line-scan.ts`, `src/collate.ts`, with tests for expected output, safety boundaries (frontmatter / code / links / list nesting / formulas) and idempotency; `test/commands.test.ts` now also covers the vault-wide batch path, including one failing file in the middle of the run
 
 ### v1.1.8
 - The chat log command (and the **文本排版** submenu entry) now also fixes **broken leading indentation**: a line starting with space + tab (`" \t"`), tabs with trailing spaces (`"\t\t "`), a tab written as 4 spaces, or 1–3 stray spaces in front of plain text/an image is normalized to tabs only. `frontmatter` and fenced code blocks are left untouched, and indentation that carries meaning is preserved (a following list marker / `>` / `#` / `|` / fence, or a paragraph inside a list item after a blank line)
@@ -315,7 +412,7 @@ MIT
 | 正文缩进 | 制表符 (tab) / 2 个空格 / 4 个空格 / 不缩进 |
 | 图文消息中图片的位置 | 图片在上方 / 图片在下方 / 保持原顺序 |
 | 消息之间插入空行 | 仅当用户名、日期、时间全部关闭时可用；用空行分隔相邻消息，便于区分说话人 |
-| 行首缩进修复 | 智能：列表子项保留，其余行首空格删掉（推荐）/ 严格：行首只留 tab，空格全删 / 关闭 |
+| 行首缩进修复 | 智能：列表子项保留，其余行首空格删掉（推荐）/ 严格：行首只留 tab，空格全删 / 关闭。开启时同时规范注释（引用）、列表、标题的标记空白 |
 
 以上默认值与原版排版结果完全一致，升级后不改变已有笔记，只有主动修改设置才会生效。源文里本来就有的空行始终会被保留。
 
@@ -331,6 +428,20 @@ MIT
 | 列表项下方、隔空行的 `"  段落"` | 不动 | 它是该列表项里的段落，缩进有语法含义 |
 
 frontmatter 与代码块（``` / ~~~）内部的缩进属于语法或内容，一律不碰。
+
+同一条命令还会规范**块级标记**的空白 —— 注释（引用）、列表、标题：
+
+| 修复前 | 修复后 | 规则 |
+|--------|--------|------|
+| `" >引用内容"` | `"> 引用内容"` | 引用标记前手滑多打的 1~3 个空格删掉，`>` 与正文之间补一个空格 |
+| `">>引用内容"` | `"> > 引用内容"` | 多级引用连写规范成 `> > ` |
+| `">[!note] 标题"` | `"> [!note] 标题"` | callout 标记后补空格 |
+| `"-    项目"` | `"- 项目"` | 列表符号后多于一个空格收成一个 |
+| `"1)   项目"` | `"1) 项目"` | 有序列表同样处理 |
+| `"##   标题"` | `"## 标题"` | 标题符号后多于一个空格收成一个 |
+| `"#标签"` | 不动 | 井号后没有空格是标签不是标题，加空格反而会变成标题 |
+| `">   - 子项"` | 不动 | 引用里的嵌套块，标记后的缩进有语法含义 |
+| `"- 顶层"` 下方的 `"  > 引用"` | 不动 | 这条引用属于该列表项，缩进是语法 |
 
 > 说明：关闭「显示用户名」后头部只剩时间戳，此时聊天记录上方紧邻的其他文字会被原样保留、不参与排版，以免误删内容。
 
@@ -375,15 +486,82 @@ frontmatter 与代码块（``` / ~~~）内部的缩进属于语法或内容，�
 
 同名图片多的时候，插件会强制写完整路径（如 `![[folderB/attachments/图.png]]`），避免裸文件名指向另一张同名图。入口在右键 **图片功能 → 整理…图片位置**，命令面板也可用（当前笔记 / 整个仓库）。
 
+### 6. 标签排版与内容板块排版
+
+两个会重排正文的排版功能，默认都关闭，需要在设置里主动开启。
+
+**标签排版** —— 一块内容里同时有正文和标签时，标签统一挪到块尾，与正文之间空一格：
+
+| 排版前 | 排版后 |
+|--------|--------|
+| `"#数学 今天学了极限"` | `"今天学了极限 #数学"` |
+| `"今天学了 #数学 极限"` | `"今天学了 极限 #数学"` |
+| `"今天学了极限 #数学。"` | `"今天学了极限。 #数学"` |
+| `"- #标签 列表项内容"` | `"- 列表项内容 #标签"` |
+| `"> #标签 引用内容"` | `"> 引用内容 #标签"` |
+| `"\| #标签 单元格 \| 另一格 \|"` | `"\| 单元格 #标签 \| 另一格 \|"` |
+| 整行只有标签 | 不动（位置不变，只按需排序） |
+
+**块**的边界：一个段落算一块（标签挪到段落最后一行），一行列表项、一行标题各自算一块。**表格按单元格算块，不是按行** —— 整行算一块会把标签挪到别的列去，表格就毁了。
+
+**标签排序** —— 同一处出现的多个标签按首字母排（中文按拼音、数字按数值）：`"内容 #数学 #笔记"` → `"内容 #笔记 #数学"`。
+
+不碰的地方：frontmatter、围栏代码块与缩进代码块、行内代码、`%%注释%%`、双链与 Markdown 链接（`[[笔记#标题]]`、`[文字](url#锚点)` 里的 `#` 不是标签）、`C#` 这种紧贴字符的井号、纯数字的 `#123`。不带行首竖线的非标准表格（`甲 | 乙 | #标签 丙`）也整行不动。
+
+**内容板块排版** —— 按首字母给笔记里的块排序（中文按拼音、数字按数值）：
+
+- 连续的列表项之间排序、连续的段落之间排序，**列表与段落不会互相穿插**
+- 标题是分节锚点：排序只发生在这个标题与下一个标题之间，标题本身不动
+- 表格、图片、分隔线、脚注、聊天记录都是锚点：原地不动，并把左右两边的排序范围切开 —— 复制来的聊天记录不会被排乱
+- 有序列表排完会顺手把编号写顺（只在原本就是连续编号时才动，手写的 `1. 1. 1.` 保持原样）
+
+相关设置项：
+
+| 设置项 | 说明 |
+|--------|------|
+| 标签排版 | 默认关闭。开启后把行内 `#标签` 统一移到所在块的句尾，与正文之间空一格 |
+| 标签排序 | 默认开启（仅当「标签排版」开启时可用）。关闭后标签归位但保持原有先后顺序 |
+| 内容板块排版 | 默认关闭。开启后按首字母对笔记各块内容排序 |
+
+### 7. 公式排版
+
+把数学公式的 LaTeX 代码整理成"**代码里的空格 = 公式渲染出来的空格**"：`$$ … $$` 区块管换行与缩进，行内 `$…$` 只按同一套空格规则整理、**绝不换行**。行内公式的识别与 Obsidian 一致：`$` 内侧紧贴内容才算公式（`$ 5 与 $` 这种不会被误当公式）。
+
+| 排版前 | 排版后 | 规则 |
+|--------|--------|------|
+| `$$\dot{x}=f(x, t)$$` | `$$\dot{x} = f(x, t)$$` | 运算、关系、逻辑符号左右各一个空格（规则 1） |
+| `$$a&b&c$$` | `$$a & b & c$$` | `&`、`\\` 是排版符号，左右各一个空格 |
+| `$$(-x)$$` | `$$(-x)$$` | 标正负的加减号与参数贴紧（规则 2） |
+| `$$(x-x_e)$$` | `$$(x - x_e)$$` | 真正的减法照旧左右加空格 |
+| `$$\partial f$$` | `$$\partial{f}$$` | 修饰符与参数贴紧；花括号保证命令名不被吃掉（规则 6） |
+| `$$\sin x$$` / `$$\sin 2x$$` | `$$\sin{x}$$` / `$$\sin2x$$` | 只在"连起来会出错"时加花括号（`\sinx` 非法、`\sin2x` 合法） |
+| `$$A_{i}, \quadA_{j}$$` | `$$A_{i}, A_{j}$$` | 间距命令与后面字母粘连（`\quadA` 会被 LaTeX 当成未定义命令，公式直接报错）会拆开：前面已有逗号等分隔就删掉多余的间距，否则写成 `\quad{A}` |
+| ``$$ x = 1 $$`` | ``$$x = 1$$`` | `$$` 与内容之间不留空格（规则 3） |
+| ``$M=1$`` | ``$M = 1$`` | 行内公式用同一套空格规则 |
+| ``$y_{i,k}=C_ix_{i,k}+D_i u_{i,k}$`` | ``$y_{i, k} = C_ix_{i, k} + D_iu_{i, k}$`` | ……渲染里连在一起的内容，代码里也连在一起 |
+| `$$f(x,y)$$` | `$$f(x, y)$$` | 逗号前不加、后加一个空格 |
+| 不是 `\\` 的换行 | 拼回同一行 | 只在 `\\` 处换行（规则 5） |
+| `\\` 之后的下一行 | 比首行多一个 tab | 续行 = 首行缩进 + 1 个 tab；`\begin{}` 不额外缩进（规则 4） |
+
+示例 —— 列表项里的矩阵公式：
+
+```
+	说明$$T = (a, b){\begin{bmatrix}1 \\
+		a & b \\
+		\end{bmatrix}}$$
+```
+
+不碰的地方：frontmatter、围栏代码块与缩进代码块、行内代码、`\text{…}` / `\operatorname{…}` 参数里的文字与空格、含 `%` 注释的公式、带 `\\` 的行内公式。**落单的 `$$` 不再让整篇失效** —— 配起来不像公式的区域（含空行 / 标题 / 围栏 / 分隔线）自动跳过，后面的真公式照排。
+
 ## 使用方式
 
 右键菜单收进了两个二级栏，顶层不再一长串：**图片功能** 与 **文本排版**。两项右侧带 `›` 箭头，悬停或点击即在旁边展开 —— 用的是 Obsidian 原生子菜单，父菜单不会收起，键盘左右键也能进出子菜单。
 
 | 方式 | 操作 |
 |------|------|
-| 右键 `.md` 文件 | **图片功能**：转换 / 重命名 / 整理位置 / 设置大小 · **文本排版**：修复排版（聊天记录 + 行首缩进） |
+| 右键 `.md` 文件 | **图片功能**：转换 / 重命名 / 整理位置 / 设置大小 · **文本排版**：修复排版（聊天记录 / 缩进 / 标签 / 公式） |
 | 右键文件夹 | 同样两个二级栏，作用于该文件夹下所有笔记 |
-| 命令面板 (`Ctrl+P`) | 菜单里的每个操作都有对应命令：转换图片（当前笔记 / 整个仓库）、重命名乱码图片（当前笔记 / 整个仓库）、重命名全部图片（普通 / 强制）、整理图片位置（当前笔记 / 整个仓库）、设置图片大小（当前笔记 / 整个仓库）、修复排版（聊天记录与行首缩进，当前笔记 / 整个仓库） |
+| 命令面板 (`Ctrl+P`) | 菜单里的每个操作都有对应命令：转换图片（当前笔记 / 整个仓库）、重命名乱码图片（当前笔记 / 整个仓库）、重命名全部图片（普通 / 强制）、整理图片位置（当前笔记 / 整个仓库）、设置图片大小（当前笔记 / 整个仓库）、修复排版（聊天记录、缩进、标签与公式，当前笔记 / 整个仓库） |
 
 ## 本地开发
 
@@ -399,7 +577,14 @@ npm run lint
 | 模块 | 职责 |
 |------|------|
 | `src/chat-log.ts` | 聊天记录排版（用户名/日期/时间开关、缩进、图文顺序、空行） |
-| `src/text-layout.ts` | 通用排版修复：行首缩进归一（4 空格 = 1 个 tab），frontmatter 与代码块受保护 |
+| `src/text-pipeline.ts` | 按固定顺序串起各排版步骤：缩进 → 标记 → 聊天记录 → 公式 → 标签 → 板块排序 |
+| `src/text-layout.ts` | 行首缩进归一（4 空格 = 1 个 tab） |
+| `src/markdown-markers.ts` | 块级标记空白：注释（引用）、列表、标题 |
+| `src/tags.ts` | 标签排版：标签归位到块尾、表格按单元格、标签排序 |
+| `src/block-sort.ts` | 内容板块排序：分节、锚点、有序列表重新编号 |
+| `src/latex-layout.ts` | 公式排版：空格规则、`$$` 定界、`\\` 换行、续行缩进 |
+| `src/line-scan.ts` | 共用保护区判定：frontmatter、围栏代码块、缩进代码块、公式 |
+| `src/collate.ts` | "首字母"比较（中文按拼音、数字按数值） |
 | `src/image-size.ts` | 改写 `\|100` / `\|100x200` 尺寸，保护图片说明文字 |
 | `src/image-links.ts` | 链接解析、同名歧义识别、链接形式决策 |
 | `src/image-organizer.ts` | 把图片复制进笔记自己的附件夹并改写链接 |
@@ -426,6 +611,21 @@ npm run lint
 批量操作前建议备份仓库。
 
 ## 更新日志
+
+### v1.2.0
+- 修复：`" >引用"`（引用标记前多打一个空格）以前被当成"缩进有语法含义的引用行"整行放过，排版一点没修。现在会修成 `"> 引用"`，引用标记前的零散空格删掉、标记与正文之间补一个空格
+- 修复：一个落单的 `$$` 会让**整篇**公式排版失效（原来要求 `$$` 成对）。现在每个 `$$` 往后找第一个"配起来像公式"的 `$$`，配起来像正文的区域（含空行 / 标题 / 围栏 / 分隔线 / 跨几百行）自动跳过，后面的真公式照排
+- 修复：整库批处理遇到**第一篇读不出来的笔记就中断**，后面所有笔记被静默跳过 —— 表现为"整库没修、单篇能修"。现在单篇失败记日志、计入失败数、继续跑完，结果提示里说明处理了多少篇、几篇出错
+- 修复：整库写盘改用 `vault.process`（原子读—改—写），不再把编辑器里尚未落盘的改动覆盖掉
+- 修复：行首缩进修复不再把 `#标签` 当成标题，标签行前手滑多打的空格会被删掉
+- 新增：块级标记的空白规范 —— 多级引用（`">>引用"` → `"> > 引用"`）、callout（`">[!note]"` → `"> [!note]"`）、列表符号后的多个空格（`"-    项目"` → `"- 项目"`）、标题符号后的多个空格（`"##   标题"` → `"## 标题"`）。`#标签` 后面没有空格，是标签不是标题，不会被加空格；列表项里的引用、引用里的嵌套块，缩进有语法含义，一律保留
+- 新增：**标签排版** —— 一块内容里同时有正文和标签时，标签统一挪到块尾并与正文空一格。一个段落算一块，一行列表项、一行标题各自算一块，**表格按单元格算块**（整行算一块会把标签挪到别的列）；整行只有标签时位置不动。frontmatter、围栏代码块、缩进代码块、`$$` 公式、行内代码、`%%注释%%`、双链与 Markdown 链接里的 `#` 都不算标签
+- 新增：**标签排序** —— 同一处出现的多个标签按首字母排序（中文按拼音、数字按数值）
+- 新增：**内容板块排版** —— 按首字母对笔记各块内容排序。标题把笔记切成小节、只在小节内排序；表格、图片、分隔线、脚注、公式、聊天记录是锚点，原地不动并切开排序范围；列表与段落分别排序、互不穿插；有序列表排完顺手把编号写顺
+- 新增：**公式排版** —— 整理数学公式的 LaTeX 代码（`$$…$$` 区块与行内 `$…$`，行内只按空格规则、不换行），让代码里的空格与公式渲染出来的空格一致：`=` `+` `\le` `&` `\\` 左右各一个空格；一元正负号与 `\partial` `\delta` `\sin` 这类命令和参数贴紧（`\delta x` → `\delta{x}`）；逗号前不加、后加一个空格；`$$` 与内容贴紧；多余空格与不是 `\\` 的换行全部删掉；只在 `\\` 处换行，续行缩进 = 首行缩进 + 1 个 tab。间距命令与后面字母粘连（`\quadA`，LaTeX 会当成未定义命令报错）会拆开：前面已有逗号等分隔就删掉多余的间距，否则写成 `\quad{A}`。`\text{…}` 里的文字、代码块、带 `\\` 的行内公式都不动
+- 结果提示现在会写明**本次处理多少篇、几篇出错、开了哪几步** —— "为什么这篇没修"（某一项开关没开）一眼可见
+- 命令回调改为返回 Promise，整库批处理路径可以被测试直接驱动
+- 新增模块 `src/markdown-markers.ts`、`src/tags.ts`、`src/block-sort.ts`、`src/latex-layout.ts`、`src/text-pipeline.ts`、`src/line-scan.ts`、`src/collate.ts`，以及对应的期望输出、安全边界与幂等性测试；`test/commands.test.ts` 增加整库批处理的回归测试（含"中间一篇读取失败"的用例）
 
 ### v1.1.8
 - 聊天记录排版命令（以及右键 **文本排版** 里的那一项）现在还会修掉**行首的坏缩进**：`" \t"`（空格 + Tab）、`"\t\t "`（Tab 带零散空格）、"一个 tab 写成 4 个空格"、以及正文/图片前手滑多打的 1~3 个空格，都会归一成纯 tab。frontmatter 与代码块内部不动；缩进有语法含义的地方也保留（后面跟列表符号 / 引用 / 标题 / 表格，或列表项里隔空行的段落）

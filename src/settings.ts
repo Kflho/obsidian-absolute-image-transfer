@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+﻿import { App, PluginSettingTab, Setting } from "obsidian";
 import ImageTransferPlugin from "./main";
 import type { ChatImageOrder, ChatIndent } from "./chat-log";
 import { DEFAULT_LEADING_INDENT_MODE, resolveLeadingIndentMode } from "./text-layout";
@@ -30,8 +30,18 @@ export interface ImageTransferSettings {
 	/** 头部信息全部关闭时，是否在相邻消息之间插入空行 */
 	chatBlankLineBetweenMessages: boolean;
 	// ---- 通用排版修复 ----
-	/** 行首缩进修复力度：把"用空格写的缩进"改回 Tab */
+	/** 行首缩进修复力度：把"用空格写的缩进"改回 Tab，顺带规范引用/列表/标题标记的空白 */
 	textLeadingIndentFix: LeadingIndentMode;
+	// ---- 标签与板块排版 ----
+	/** 标签排版：把行内标签移到所在块的句尾，与正文空一格 */
+	tagLayout: boolean;
+	/** 标签排序：同一处出现的多个标签按首字母排序 */
+	tagSort: boolean;
+	/** 内容板块排版：按首字母对笔记各块内容排序 */
+	blockSort: boolean;
+	// ---- 公式排版 ----
+	/** 公式排版：整理 $$…$$ 里的 LaTeX 代码（空格、换行、缩进） */
+	mathLayout: boolean;
 }
 
 export const DEFAULT_SETTINGS: ImageTransferSettings = {
@@ -50,7 +60,13 @@ export const DEFAULT_SETTINGS: ImageTransferSettings = {
 	chatImageOrder: 'keep',
 	chatBlankLineBetweenMessages: false,
 	// 默认「保守」：能修掉聊天记录里典型的空格混排，又不会动 Markdown 列表的嵌套缩进
-	textLeadingIndentFix: DEFAULT_LEADING_INDENT_MODE
+	textLeadingIndentFix: DEFAULT_LEADING_INDENT_MODE,
+	// 标签与板块排序会重排正文，默认关闭；开启后「标签排版」连带按首字母排序
+	tagLayout: false,
+	tagSort: true,
+	blockSort: false,
+	// 公式排版会重写 $$…$$ 里的代码，默认关闭
+	mathLayout: false
 }
 
 export class ImageTransferSettingTab extends PluginSettingTab {
@@ -249,7 +265,7 @@ export class ImageTransferSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('行首缩进修复')
-			.setDesc('把行首"用空格写的缩进"改回 tab：4 个空格算一个 tab，混在 tab 之间的零散空格删掉。正文、图片前多打的 1~3 个空格一并删掉；后面跟列表子项 / 引用 / 标题等块级结构时保留缩进。frontmatter 与代码块内部不动')
+			.setDesc('把行首"用空格写的缩进"改回 tab：4 个空格算一个 tab，混在 tab 之间的零散空格删掉。正文、图片前多打的 1~3 个空格一并删掉；后面跟列表子项 / 标题等块级结构时保留缩进。顺带规范块级标记的空白：注释（引用）行前的零散空格删掉、">"与正文之间补一个空格（">引用" → "> 引用"）、列表符号与标题符号后的多个空格收成一个。frontmatter 与代码块内部不动')
 			.addDropdown(dropdown => dropdown
 				.addOption('smart', '智能：列表子项保留，其余行首空格删掉 (推荐)')
 				.addOption('strict', '严格：行首只留 tab，空格全删')
@@ -257,6 +273,59 @@ export class ImageTransferSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.textLeadingIndentFix)
 				.onChange(async (value) => {
 					this.plugin.settings.textLeadingIndentFix = resolveLeadingIndentMode(value);
+					await this.plugin.saveSettings();
+				}));
+
+		// --------------------------------------------------------
+		// 标签与板块排版
+		// --------------------------------------------------------
+		new Setting(containerEl).setName('标签与板块排版').setHeading();
+
+		new Setting(containerEl)
+			.setName('标签排版')
+			.setDesc('把行内的 #标签 统一移到所在块的句尾，与正文之间空一格；整行只有标签时位置不动。一个段落算一块，一行列表项、一行标题各自算一块，表格按单元格算块（不会把标签挪到别的列）。frontmatter、代码块（围栏或缩进）、行内代码、%%注释%%、双链与链接里的 # 都不算标签')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.tagLayout)
+				.onChange(async (value) => {
+					this.plugin.settings.tagLayout = value;
+					await this.plugin.saveSettings();
+					// 重新渲染，刷新「标签排序」的可用状态
+					this.display();
+				}));
+
+		new Setting(containerEl)
+			.setName('标签排序')
+			.setDesc('同一处出现的多个标签按首字母排序（中文按拼音、数字按数值）；关闭后保持原有先后顺序')
+			.setDisabled(!this.plugin.settings.tagLayout)
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.tagSort)
+				.onChange(async (value) => {
+					this.plugin.settings.tagSort = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('内容板块排版')
+			.setDesc('按首字母对笔记各块内容排序（中文按拼音、数字按数值）。连续的列表项之间、连续的段落之间分别排序，列表与段落不会互相穿插；标题把排序范围切成一个个小节，表格、图片、分隔线、聊天记录保持原位。适合词条、清单类笔记，会重排正文')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.blockSort)
+				.onChange(async (value) => {
+					this.plugin.settings.blockSort = value;
+					await this.plugin.saveSettings();
+				}));
+
+		// --------------------------------------------------------
+		// 公式排版
+		// --------------------------------------------------------
+		new Setting(containerEl).setName('公式排版').setHeading();
+
+		new Setting(containerEl)
+			.setName('公式排版')
+			.setDesc('整理数学公式：$$…$$ 区块与行内 $…$（行内只按空格规则整理、绝不换行）。原则是"代码里的空格 = 公式渲染出来的空格"：运算 / 逻辑 / 排版符号（= + - \\le \\to \\in、&、\\\\）左右各空一格；一元正负号与 \\partial \\delta \\sin 这类命令和参数之间贴紧（会吃掉命令名时写成 \\delta{x}）；逗号前不加、后加一个空格；多余的空格与换行删掉。只在 \\\\ 处换行，续行缩进 = 首行缩进 + 1 个 tab；$$ 与内容之间不留空格。间距命令与后面字母粘连（\\quadA 会被 LaTeX 当成未定义命令）会拆开：前面已有逗号等分隔就删掉多余的间距，否则写成 \\quad{A}。frontmatter、代码块、\\text{…} 里的文字都不动')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.mathLayout)
+				.onChange(async (value) => {
+					this.plugin.settings.mathLayout = value;
 					await this.plugin.saveSettings();
 				}));
 	}

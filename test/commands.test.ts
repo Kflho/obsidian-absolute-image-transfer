@@ -10,7 +10,7 @@
  *   2. 菜单里的每个操作都能在命令表里找到；命令表里的每条命令都真的注册了
  *   3. 两条子菜单路径行为一致 —— 原生 setSubmenu（右侧画 › 箭头）与旧版退化路径
  */
-import { Menu, MenuItem, TFile } from "obsidian";
+import { Menu, MenuItem, Notice, TFile } from "obsidian";
 import type { App, PluginManifest } from "obsidian";
 import ImageTransferPlugin from "../src/main";
 
@@ -21,6 +21,15 @@ const failures: string[] = [];
 function checkTrue(name: string, condition: boolean, detail: string): void {
 	checks++;
 	if (!condition) failures.push(`[断言失败] ${name}\n${detail}`);
+}
+
+function check(name: string, actual: string, expected: string): void {
+	checks++;
+	if (actual !== expected) {
+		failures.push(`[期望输出不符] ${name}
+  期望 ${JSON.stringify(expected)}
+  实际 ${JSON.stringify(actual)}`);
+	}
 }
 
 function checkList(name: string, actual: string[], expected: string[]): void {
@@ -93,21 +102,44 @@ const OPERATIONS: Array<{ menu: RegExp; commands: string[] }> = [
 		commands: ["set-image-size-current-note", "set-image-size-entire-vault"],
 	},
 	{
-		menu: /^修复.*的排版（聊天记录与行首缩进）$/,
+		menu: /^修复.*的排版（聊天记录 \/ 缩进 \/ 标签 \/ 公式）$/,
 		commands: ["format-chat-log-current-note", "format-chat-log-entire-vault"],
 	},
 ];
 
 // ------------------------------------------------------------------ 辅助构造
-function createApp(): { app: App; handlers: Map<string, FileMenuHandler[]> } {
+/** 记录笔记内容与"读就报错"的文件，用来跑真实的批处理路径 */
+interface VaultStub {
+	app: App;
+	handlers: Map<string, FileMenuHandler[]>;
+	contents: Map<string, string>;
+	files: TFile[];
+}
+
+function createApp(options?: { contents?: Map<string, string>; failOn?: string }): VaultStub {
 	const handlers = new Map<string, FileMenuHandler[]>();
+	const contents = options?.contents ?? new Map<string, string>();
+	const files = [...contents.keys()].map(path =>
+		Object.assign(new TFile(), { path, name: path, extension: "md" })
+	);
+
 	const app = {
 		vault: {
-			getMarkdownFiles: (): TFile[] => [],
+			getMarkdownFiles: (): TFile[] => files,
 			getFiles: (): TFile[] => [],
 			getAbstractFileByPath: (): null => null,
-			read: async (): Promise<string> => "",
-			modify: async (): Promise<void> => undefined,
+			read: async (file: TFile): Promise<string> => contents.get(file.path) ?? "",
+			modify: async (file: TFile, data: string): Promise<void> => {
+				contents.set(file.path, data);
+			},
+			// 插件用 process 做"读—改—写"；这里模拟"某一篇读不出来"
+			process: async (file: TFile, fn: (data: string) => string): Promise<string> => {
+				if (options?.failOn === file.path) throw new Error(`模拟读取失败：${file.path}`);
+				const current = contents.get(file.path) ?? "";
+				const next = fn(current);
+				if (next !== current) contents.set(file.path, next);
+				return next;
+			},
 			createBinary: async (): Promise<unknown> => ({}),
 		},
 		workspace: {
@@ -120,7 +152,8 @@ function createApp(): { app: App; handlers: Map<string, FileMenuHandler[]> } {
 		},
 		fileManager: { renameFile: async (): Promise<void> => undefined },
 	} as unknown as App;
-	return { app, handlers };
+
+	return { app, handlers, contents, files };
 }
 
 async function loadPlugin(): Promise<{ plugin: RecordedPlugin; handlers: Map<string, FileMenuHandler[]> }> {
@@ -230,9 +263,87 @@ async function audit(): Promise<void> {
 	checkTrue("设置面板已注册", plugin.settingTabs.length === 1, `实际注册 ${plugin.settingTabs.length} 个`);
 }
 
+// ------------------------------------------------- 5. 整库批处理：单篇失败不拖垮整批
+/** suppressNotices / 状态栏用到的浏览器 API，在 Node 里补上最小替身 */
+function installDomStubs(): void {
+	const globals = globalThis as unknown as Record<string, unknown>;
+	const classes = new Set<string>();
+	globals.document = {
+		body: {
+			classList: {
+				add: (name: string) => { classes.add(name); },
+				remove: (name: string) => { classes.delete(name); },
+				contains: (name: string) => classes.has(name),
+			},
+		},
+	};
+	// 定时器立即执行：省掉恢复通知的 5 秒等待，也不留悬挂的定时器
+	globals.window = {
+		setTimeout: (fn: () => void) => { fn(); return 0; },
+		clearTimeout: () => undefined,
+		innerWidth: 100,
+		innerHeight: 100,
+	};
+	globals.MutationObserver = class {
+		observe(): void { /* 不观察 */ }
+		disconnect(): void { /* 无需断开 */ }
+	};
+}
+
+/** 替身 Notice 记录的提示消息（真实 Notice 没有这个字段） */
+const noticeLog = Notice as unknown as { messages: string[] };
+
+async function batchTests(): Promise<void> {
+	installDomStubs();
+
+	const contents = new Map<string, string>([
+		["a.md", " >引用A"],
+		["坏掉的笔记.md", " >引用B"],   // 读取就报错
+		["c.md", " >引用C"],
+	]);
+	const { app, contents: store, files } = createApp({ contents, failOn: "坏掉的笔记.md" });
+	const manifest = { id: "absolute-image-transfer", name: "test", version: "0.0.0" } as PluginManifest;
+	const plugin = new ImageTransferPlugin(app, manifest);
+	await plugin.onload();
+
+	const command = (plugin as unknown as { commands: Array<{ id: string; callback?: () => unknown }> }).commands
+		.find(entry => entry.id === "format-chat-log-entire-vault");
+	checkTrue("整库排版命令已注册", command !== undefined, "找不到 format-chat-log-entire-vault");
+
+	noticeLog.messages.length = 0;
+	const consoleError = console.error;
+	const consoleDebug = console.debug;
+	const logged: string[] = [];
+	console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+	// 插件批处理时会打调试日志（屏蔽通知那套），测试输出里不需要
+	console.debug = () => undefined;
+	try {
+		// createApp 里的文件列表来自 contents 的键，插件拿到的就是这个列表
+		checkTrue("测试仓库里有 3 篇笔记", files.length === 3, `实际 ${files.length} 篇`);
+		await command?.callback?.();
+	} finally {
+		console.error = consoleError;
+		console.debug = consoleDebug;
+	}
+
+	check("整库批处理：第一遍修好", store.get("a.md") ?? "", "> 引用A");
+	check("整库批处理：出错的那篇保持原样", store.get("坏掉的笔记.md") ?? "", " >引用B");
+	check("整库批处理：出错之后的笔记照样修好", store.get("c.md") ?? "", "> 引用C");
+	checkTrue("出错的文件被写进日志", logged.some(line => line.includes("坏掉的笔记.md")), `日志：${logged.join(" | ")}`);
+
+	const failureNotice = noticeLog.messages.find((message: string) => message.includes("处理失败"));
+	checkTrue("结果提示里说明了失败篇数", failureNotice !== undefined, `实际提示：${noticeLog.messages.join(" | ")}`);
+	const summary = noticeLog.messages.find((message: string) => message.includes("共修复了"));
+	checkTrue("结果提示里带了本次处理篇数与开关状态", summary !== undefined && summary.includes("本次处理 3 篇") && summary.includes("已开启"),
+		`实际提示：${noticeLog.messages.join(" | ")}`);
+}
+
 // -------------------------------------------------------------------- 运行
 console.log("=== 命令注册审计 ===");
 await audit();
+
+console.log("=== 整库批处理：单篇失败不拖垮整批 ===");
+await batchTests();
 
 console.log(`\n共 ${checks} 次检查，失败 ${failures.length} 项`);
 for (const message of failures.slice(0, 10)) {
