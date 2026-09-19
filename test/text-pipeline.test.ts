@@ -62,6 +62,17 @@ function pipelineTests(): void {
 	// 标签归位（默认关闭 → 打开后有变化）
 	check("标签：默认关闭时不碰", formatNoteText("#标签 内容", BASE), "#标签 内容");
 	check("标签：打开后移到句尾", formatNoteText("#标签 内容", { ...BASE, tags: { sort: true } }), "内容 #标签");
+	// 整行只有标签：这一行自成一块 —— 缩进修完照旧单独一行，不会被并进相邻正文行
+	check(
+		"标签：后面的纯标签行保持独立",
+		formatNoteText(["今天学了极限", "#数学"].join("\n"), { ...BASE, tags: { sort: true } }),
+		["今天学了极限", "#数学"].join("\n")
+	);
+	check(
+		"标签：段落中间的纯标签行原地不动（顺手修掉行首空格）",
+		formatNoteText(["第一行", " #标签", "第三行"].join("\n"), { ...BASE, tags: { sort: true } }),
+		["第一行", "#标签", "第三行"].join("\n")
+	);
 
 	// 板块排序
 	check(

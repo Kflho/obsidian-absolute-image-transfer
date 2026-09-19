@@ -269,6 +269,9 @@ Feature logic is split into focused modules so it can be tested without Obsidian
 
 ## Changelog
 
+### v1.2.1
+- Fixed: **a tag-only line had its tags moved away** — when such a line sat at the start or in the middle of a paragraph it was dropped entirely and its tags were appended to a neighbouring text line (`"first line"` / `"#tag"` / `"third line"` → `"first line"` / `"third line #tag"`), and two consecutive tag-only lines were merged into one. A tags-only line is now a block of its own: it keeps its position, its tags neither leak out nor receive tags from elsewhere, and the paragraph breaks there. Its own tags are still sorted
+
 ### v1.2.0
 - Fixed: a line such as `" >quote"` (a stray leading space before a blockquote) used to be treated as meaningful indentation and skipped — nothing was repaired at all. It is now normalized to `"> quote"`, with a space between the marker and the text
 - Fixed: a single stray `$$` used to disable formula formatting for the **whole note** (the `$$` count had to be even). Each `$$` is now paired with the next one that forms a plausible formula region — a region that looks like prose (blank line, heading, fence, rule, hundreds of lines) is skipped and the real formulas after it are still formatted
@@ -500,9 +503,17 @@ frontmatter 与代码块（``` / ~~~）内部的缩进属于语法或内容，�
 | `"- #标签 列表项内容"` | `"- 列表项内容 #标签"` |
 | `"> #标签 引用内容"` | `"> 引用内容 #标签"` |
 | `"\| #标签 单元格 \| 另一格 \|"` | `"\| 单元格 #标签 \| 另一格 \|"` |
-| 整行只有标签 | 不动（位置不变，只按需排序） |
+| 整行只有标签 | 不动（位置不变、不与上下正文行合并，只按需排序） |
 
-**块**的边界：一个段落算一块（标签挪到段落最后一行），一行列表项、一行标题各自算一块。**表格按单元格算块，不是按行** —— 整行算一块会把标签挪到别的列去，表格就毁了。
+**块**的边界：一个段落算一块（标签挪到段落最后一行），一行列表项、一行标题各自算一块，**整行只有标签时这一行自成一块**（标签既不会被抽走，也不会接收别处的标签，连着两行纯标签行也不会被并成一行），**表格按单元格算块，不是按行** —— 整行算一块会把标签挪到别的列去，表格就毁了。
+
+段落里夹着一行纯标签时，段落就在那里断开，两边的标签各归各的：
+
+| 排版前 | 排版后 |
+|--------|--------|
+| `"#标签"` + `"下一行文字"` | 不动（纯标签行不会被并进下一行） |
+| `"第一行"` + `"#标签"` + `"第三行"` | 不动（纯标签行不会被抽走） |
+| `"#甲 第一行"` + `"#乙"` + `"第三行"` | `"第一行 #甲"` + `"#乙"` + `"第三行"` |
 
 **标签排序** —— 同一处出现的多个标签按首字母排（中文按拼音、数字按数值）：`"内容 #数学 #笔记"` → `"内容 #笔记 #数学"`。
 
@@ -611,6 +622,9 @@ npm run lint
 批量操作前建议备份仓库。
 
 ## 更新日志
+
+### v1.2.1
+- 修复：**整行只有标签时标签被挪走** —— 纯标签行跟在段落后面还好，一旦它在段落开头或中间，那一行会被抽空删掉、标签被并到相邻正文行的末尾（`"第一行" / "#标签" / "第三行"` → `"第一行" / "第三行 #标签"`；连着两行纯标签还会被并成一行）。现在纯标签行**自成一块**：位置不动、标签不外流也不接收别处的标签，段落在这里断开，标签各归各的；纯标签行本身仍按需排序
 
 ### v1.2.0
 - 修复：`" >引用"`（引用标记前多打一个空格）以前被当成"缩进有语法含义的引用行"整行放过，排版一点没修。现在会修成 `"> 引用"`，引用标记前的零散空格删掉、标记与正文之间补一个空格

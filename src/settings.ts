@@ -1,4 +1,4 @@
-﻿import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting } from "obsidian";
 import ImageTransferPlugin from "./main";
 import type { ChatImageOrder, ChatIndent } from "./chat-log";
 import { DEFAULT_LEADING_INDENT_MODE, resolveLeadingIndentMode } from "./text-layout";
@@ -283,7 +283,7 @@ export class ImageTransferSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('标签排版')
-			.setDesc('把行内的 #标签 统一移到所在块的句尾，与正文之间空一格；整行只有标签时位置不动。一个段落算一块，一行列表项、一行标题各自算一块，表格按单元格算块（不会把标签挪到别的列）。frontmatter、代码块（围栏或缩进）、行内代码、%%注释%%、双链与链接里的 # 都不算标签')
+			.setDesc('把行内的 #标签 统一移到所在块的句尾，与正文之间空一格；整行只有标签时这一行自成一块，位置不动、也不会被并进相邻的正文行。一个段落算一块，一行列表项、一行标题各自算一块，表格按单元格算块（不会把标签挪到别的列）。frontmatter、代码块（围栏或缩进）、行内代码、%%注释%%、双链与链接里的 # 都不算标签')
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.tagLayout)
 				.onChange(async (value) => {

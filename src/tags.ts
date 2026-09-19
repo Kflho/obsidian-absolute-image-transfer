@@ -4,11 +4,13 @@
  * 做两件事：
  * 1. **标签归位**——一块内容里同时有正文和标签时，把标签统一挪到块尾，
  *    与正文之间空一格：`"#数学 今天学了极限"` → `"今天学了极限 #数学"`。
- *    整块只有标签（例如笔记开头的标签行）时位置不动，只按需排序。
  * 2. **标签排序**——同一处出现的多个标签按首字母排（中文按拼音）：
  *    `"内容 #笔记 #数学"` → `"内容 #笔记 #数学"`（笔 b < 数 s）。
  *
  * "块"的边界：
+ * - **整行只有标签时，这一行自成一块**——位置不动，标签不外流也不接收别处的标签，
+ *   连着的两行纯标签行也不会被并成一行。笔记里"正文下面单独一行标签"是常见写法，
+ *   把它并进正文行就毁了这层结构；
  * - 一个段落（连续的普通正文行）算一块，标签挪到**段落最后一行**的句尾；
  * - 一行列表项、一行标题各自成块，标签挪到该行句尾，列表符号/引用符号留在原地；
  * - **表格按单元格算块，不是按行**——表格整行算一块会把标签挪到别的列去，表格就毁了。
@@ -159,6 +161,15 @@ function hasText(text: string): boolean {
 	return !/^[ \t\u3000\r]*$/.test(text);
 }
 
+/**
+ * 整行只有标签（摘掉标签后什么都不剩）—— 例如 `"#数学 #笔记"`。
+ * 这类行自成一块：标签挪到别处、或被别处的标签挤进来，都会毁掉"单独一行标签"的写法。
+ */
+function isTagsOnlyLine(line: ParsedLine): boolean {
+	const { text, tags } = stripTags(line.body);
+	return tags.length > 0 && !hasText(text);
+}
+
 /** 按设置给一组标签排序（首字母；中文按拼音，数字按数值） */
 function orderTags(tags: string[], options: TagLayoutOptions): string[] {
 	if (!options.sort) return tags;
@@ -276,7 +287,9 @@ function layoutTableRow(row: string, options: TagLayoutOptions): string {
 
 /**
  * 排一个块（1 行或多行），返回这个块输出后的行。
- * 返回的行数可能少于输入 —— 中间那些只装了标签的行被抽空后直接删掉。
+ *
+ * 纯标签行在构块时已经各自切开（见 formatTags），所以多行块里每一行都带正文，
+ * 标签并到块尾即可；单行的纯标签块位置不动，只按需排序。
  */
 function layoutBlock(
 	block: number[],
@@ -317,32 +330,14 @@ function layoutBlock(
 		});
 	}
 
-	// 有正文：标签挂到块尾
-	const lastIndex = texts.length - 1;
-	// 末行本来就是"只有标签"的行 → 标签已经在块尾，用排好序的完整标签串替换它
-	const lastIsTagsOnly = !hasText(texts[lastIndex] ?? '');
-	const out: string[] = [];
-
-	for (let n = 0; n < block.length; n++) {
-		const line = parsedAt(parsed, block[n] ?? 0);
-		const text = texts[n] ?? '';
-		if (n === lastIndex && lastIsTagsOnly) {
-			out.push(line.prefix + ordered.join(' '));
-			continue;
-		}
-		// 中间被抽空的纯标签行：删掉，免得留下空行把段落切成两半
-		if (!hasText(text)) continue;
-		out.push(line.prefix + text);
-	}
-
-	if (!lastIsTagsOnly && out.length > 0) {
-		const last = out.length - 1;
-		const current = out[last] ?? '';
-		// 行尾的 `\r`（CRLF 文件）要留在最后面
-		const eol = current.endsWith('\r') ? '\r' : '';
-		const core = eol ? current.substring(0, current.length - 1) : current;
-		out[last] = `${core} ${ordered.join(' ')}${eol}`;
-	}
+	// 有正文：标签并到块尾（块里不会夹着纯标签行，构块时已经切开）
+	const out = block.map((index, n) => parsedAt(parsed, index).prefix + (texts[n] ?? ''));
+	const last = out.length - 1;
+	const current = out[last] ?? '';
+	// 行尾的 `\r`（CRLF 文件）要留在最后面
+	const eol = current.endsWith('\r') ? '\r' : '';
+	const core = eol ? current.substring(0, current.length - 1) : current;
+	out[last] = `${core} ${ordered.join(' ')}${eol}`;
 
 	return out;
 }
@@ -388,13 +383,16 @@ export function formatTags(content: string, options: TagLayoutOptions = DEFAULT_
 		// 收集一个块：普通正文行按"前缀相同 + 中间没有空行"连成一段，其余行各自成块
 		const kind = lineKind(current);
 		const block = [index];
-		if (kind === 'plain') {
+		// 纯标签行本身就是一块：它既不并入相邻段落，也不把段落接起来
+		if (kind === 'plain' && !isTagsOnlyLine(current)) {
 			let next = index + 1;
 			while (next < lines.length && !isOpaque(next)) {
 				const candidate = parsedAt(parsed, next);
 				if (candidate.body.trim() === '') break;
 				if (candidate.prefix !== current.prefix) break;
 				if (lineKind(candidate) !== 'plain') break;
+				// 段落中间夹着的纯标签行同样自成一块：标签不外流，位置也不动
+				if (isTagsOnlyLine(candidate)) break;
 				block.push(next);
 				next++;
 			}
